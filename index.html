@@ -216,11 +216,34 @@ async function chercherCommunes(q){
   return (Array.isArray(arr)?arr:[]).map(c=>({nom:c.nom,insee:c.code,cps:c.codesPostaux||[]}));
 }
 /* ---- parcelles ---- */
-async function parcelleAuPoint(lon,lat){
-  const geom={type:"Point",coordinates:[lon,lat]};
+async function cadastreParGeom(geom){
   const fc=await jget(`${APICARTO}/cadastre/parcelle?geom=${encodeURIComponent(JSON.stringify(geom))}`);
-  if(!fc.features||!fc.features.length) throw new Error("Aucune parcelle cadastrale à cette adresse.");
-  return fc.features[0];
+  return (fc&&fc.features)||[];
+}
+function pointInRing(x,y,ring){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    if(((yi>y)!==(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+function pointInGeom(x,y,g){
+  const dansPoly=poly=>{ if(!pointInRing(x,y,poly[0])) return false; for(let k=1;k<poly.length;k++) if(pointInRing(x,y,poly[k])) return false; return true; };
+  if(g.type==="Polygon") return dansPoly(g.coordinates);
+  if(g.type==="MultiPolygon") return g.coordinates.some(dansPoly);
+  return false;
+}
+async function parcelleAuPoint(lon,lat){
+  // 1) point exact
+  let feats=await cadastreParGeom({type:"Point",coordinates:[lon,lat]});
+  if(feats.length) return feats[0];
+  // 2) repli : tampon ~35 m (le géocodage peut viser le bord de la voie)
+  const dLat=35/111320, dLon=35/(111320*Math.cos(lat*Math.PI/180));
+  const poly={type:"Polygon",coordinates:[[[lon-dLon,lat-dLat],[lon+dLon,lat-dLat],[lon+dLon,lat+dLat],[lon-dLon,lat+dLat],[lon-dLon,lat-dLat]]]};
+  feats=await cadastreParGeom(poly);
+  if(feats.length){ return feats.find(f=>pointInGeom(lon,lat,f.geometry)) || feats[0]; }
+  throw new Error("Aucune parcelle trouvée à cette adresse. Précisez le numéro et la voie, ou utilisez la recherche par références cadastrales.");
 }
 async function parcelleParRef(insee,section,numero){
   const sec=pad(section.toUpperCase(),2), num=pad(numero,4);
