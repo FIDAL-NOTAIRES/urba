@@ -95,7 +95,10 @@
     .main{flex-direction:column;height:auto}#map{height:55vh}
     .panel{width:100%;flex:1 1 auto;border-left:none;border-top:1px solid var(--trait)}
   }
-  @media print{ header .sub,.entry,.panel .ph .actions{display:none} .main{height:auto;display:block} #map{height:480px} .panel{width:100%} }
+  #printArea{display:none}
+  .op-ctrl{background:rgba(255,255,255,.95);padding:6px 9px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.2);font-size:11px;color:#0F2238;display:flex;flex-direction:column;gap:3px}
+  .op-ctrl input{width:130px;cursor:pointer}
+  @media print{ body{background:#fff;margin:0} body>header,body>.entry,body>.main{display:none!important} #printArea{display:block!important;padding:16px;font-family:"Segoe UI",sans-serif} #printArea .section{break-inside:avoid} }
 </style>
 </head>
 <body>
@@ -187,7 +190,7 @@ const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
 let coucheFond=L.tileLayer(fonds.cadastre.url,{maxZoom:19,attribution:"© IGN / Géoplateforme / DGFiP",crossOrigin:true}).addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
-let legendCtrl=null, lastBounds=null;
+let legendCtrl=null, lastBounds=null, opacityZone=0.28;
 const fondBtn=L.control({position:"topright"});
 fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.cadastre.nom;b.style.cursor="pointer";
   let i=0;b.onclick=(e)=>{e.stopPropagation(); i=(i+1)%ordreFond.length; const k=ordreFond[i];
@@ -198,6 +201,13 @@ fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="F
   L.DomEvent.disableClickPropagation(b);return b;};
 fondBtn.addTo(map);
 document.getElementById("map").style.background=fonds.cadastre.bg;
+const opCtrl=L.control({position:"topright"});
+opCtrl.onAdd=()=>{const d=L.DomUtil.create("div","op-ctrl");
+  d.innerHTML=`<span>Transparence zonage</span><input type="range" min="0" max="0.6" step="0.05" value="${opacityZone}">`;
+  const r=d.querySelector("input");
+  r.addEventListener("input",()=>{ opacityZone=parseFloat(r.value); layerZones.eachLayer(l=>{ if(l.setStyle) l.setStyle({fillOpacity:opacityZone}); }); });
+  L.DomEvent.disableClickPropagation(d);return d;};
+opCtrl.addTo(map);
 
 const PALETTE=["#6DD5DC","#E3CC7A","#FF982D","#33838B","#9CCB8E","#C58FD0","#7FA7E0","#E08F8F","#8FD0C5","#D0C28F","#A0A0C0","#88B04B"];
 const colorMap={};
@@ -286,7 +296,7 @@ function dessiner(results){
     const pl=L.geoJSON(R.parcelle.geometry,{style:{color:"#0F2238",weight:3,fill:false}}).addTo(layerParcelle);
     try{ bounds.push(pl.getBounds()); }catch(e){}
     R.zones.forEach(z=>{ const lib=z.properties.libelle||"—",col=couleurZone(lib);
-      L.geoJSON(z.geometry,{style:{color:col,weight:1.5,fillColor:col,fillOpacity:.35}}).addTo(layerZones);
+      L.geoJSON(z.geometry,{style:{color:col,weight:1.5,fillColor:col,fillOpacity:opacityZone}}).addTo(layerZones);
       L.marker(centroid(z.geometry),{icon:L.divIcon({className:"zlabel",html:lib})}).addTo(layerLabels); });
     R.prescSurf.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:2,fillColor:"#FF982D",fillOpacity:.15,dashArray:"5 4"}}).addTo(layerPresc));
     R.prescLin.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:3,dashArray:"5 4"}}).addTo(layerPresc));
@@ -476,20 +486,19 @@ document.getElementById("goRefs").addEventListener("click",async()=>{
 });
 
 /* ===================== EXPORTS ===================== */
-function preparerImpression(){
-  const m=document.getElementById("map"); m.style.height="480px"; map.invalidateSize();
-  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.15),{animate:false,maxZoom:18}); }catch(e){} }
+const printArea=document.createElement("div"); printArea.id="printArea"; document.body.appendChild(printArea);
+async function captureCarte(){
+  if(lastBounds){ map.invalidateSize(); try{ map.fitBounds(lastBounds.pad(0.12),{animate:false,maxZoom:18}); }catch(e){} }
+  await new Promise(r=>setTimeout(r,500)); // laisser les tuiles se charger sur le cadrage serré
+  try{ const cv=await html2canvas(document.getElementById("map"),{useCORS:true,backgroundColor:"#ffffff"}); return cv.toDataURL("image/png"); }
+  catch(e){ return ""; }
 }
-function restaurerCarte(){
-  const m=document.getElementById("map"); m.style.height=""; map.invalidateSize();
-  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
-}
-window.addEventListener("beforeprint",preparerImpression);
-window.addEventListener("afterprint",restaurerCarte);
 document.getElementById("pdf").addEventListener("click",async()=>{
-  preparerImpression();
-  await new Promise(r=>setTimeout(r,700)); // laisser les tuiles recharger sur le nouveau cadrage
+  const img=await captureCarte();
+  const imgTag=img?`<img src="${img}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:0 0 14px"/>`:`<div class="hint">Aperçu du plan indisponible (export image bloqué par le navigateur).</div>`;
+  printArea.innerHTML=`<div style="font-family:Georgia,serif;font-size:20px;color:#0F2238">URBA — Zonage et règles d'urbanisme</div><div style="font-size:12px;color:#657D96;margin:2px 0 12px">Fiche générée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${document.getElementById("fiche").innerHTML}</div>`;
   window.print();
+  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
 });
 document.getElementById("png").addEventListener("click",async()=>{
   try{ const canvas=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:null});
