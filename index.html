@@ -25,14 +25,19 @@
   .card{flex:1 1 360px;min-width:320px;border:1px solid var(--trait);border-radius:12px;padding:14px 16px;background:#fafcfd;display:flex;flex-direction:column}
   .go-row{margin-top:auto;padding-top:10px}
   .go-row .btn-go{width:100%}
-  .card-t{font-size:14px;color:var(--nuit);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-  .card-t .dot{width:8px;height:8px;border-radius:50%;background:var(--canard)}
+  .card-t{font-size:14px;font-weight:700;color:var(--nuit);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .card-t .num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex:none;background:var(--canard)}
+  .card.adresse{border-left:4px solid var(--canard);background:#f2fafb}
+  .card.adresse .card-t{color:var(--canard)}
+  .card.refs{border-left:4px solid var(--or);background:#fdfaef}
   label{font-size:11px;color:var(--gris);text-transform:uppercase;letter-spacing:.4px}
   input{border:1px solid var(--trait);border-radius:8px;padding:9px 11px;font-size:14px;font-family:inherit;background:#fff}
   input:focus{outline:none;border-color:var(--canard);box-shadow:0 0 0 3px rgba(51,131,139,.15)}
   button{cursor:pointer;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;padding:9px 16px;transition:.15s}
   .btn-go{background:var(--canard);color:#fff}.btn-go:hover{background:var(--teal)}
   .btn-sec{background:#eef2f5;color:var(--nuit)}.btn-sec:hover{background:#e2e8ee}
+  #word{background:var(--canard);color:#fff}#pdf{background:var(--nuit);color:#fff}#pdfDossier{background:var(--or);color:var(--nuit)}
+  .panel .ph .actions button:hover{filter:brightness(1.08)}
 
   /* --- adresse + micro --- */
   .addr-row{display:flex;gap:8px;align-items:center}
@@ -65,9 +70,9 @@
   .main{display:flex;height:calc(100vh - 250px);min-height:460px}
   #map{flex:1;background:#dfe6ea;z-index:0}
   .panel{width:400px;flex:0 0 400px;background:#fff;border-left:1px solid var(--trait);overflow-y:auto}
-  .panel .ph{padding:14px 16px;border-bottom:1px solid var(--trait);position:sticky;top:0;background:#fff;z-index:2;display:flex;justify-content:space-between;align-items:center}
-  .panel .ph h2{font-size:16px}.panel .ph .actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-  .panel .ph .actions button{padding:6px 10px;font-size:12px}
+  .panel .ph{padding:14px 16px;border-bottom:1px solid var(--trait);position:sticky;top:0;background:#fff;z-index:2;display:flex;flex-direction:column;gap:8px}
+  .panel .ph h2{font-size:16px}.panel .ph .actions{display:flex;gap:6px}
+  .panel .ph .actions button{flex:1;padding:7px 6px;font-size:12px}
   .pblock{border-bottom:6px solid #f4f6f8}
   .section{padding:12px 16px;border-bottom:1px solid var(--trait)}
   .section h3{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--canard);margin-bottom:8px}
@@ -116,8 +121,8 @@
   <div class="entry-grid">
 
     <!-- ADRESSE + micro -->
-    <div class="card">
-      <div class="card-t"><span class="dot"></span> Par adresse</div>
+    <div class="card adresse">
+      <div class="card-t"><span class="num">1</span> Par adresse</div>
       <label>Commune et adresse</label>
       <div class="addr-row">
         <div class="addr-wrap">
@@ -131,8 +136,8 @@
     </div>
 
     <!-- REFERENCES CADASTRALES -->
-    <div class="card">
-      <div class="card-t"><span class="dot"></span> Par références cadastrales</div>
+    <div class="card refs">
+      <div class="card-t"><span class="num">2</span> Par références cadastrales</div>
       <div class="commune-wrap">
         <label>Commune ou code postal</label>
         <input id="commune" placeholder="La Madeleine ou 59110" autocomplete="off"/>
@@ -156,7 +161,7 @@
   </div>
   <aside class="panel">
     <div class="ph"><h2>Fiche urbanisme</h2>
-      <div class="actions"><button class="btn-sec" id="png">PNG</button><button class="btn-sec" id="pdf">Fiche PDF</button><button class="btn-sec" id="pdfDossier">Fiche + dossier</button></div>
+      <div class="actions"><button class="btn-sec" id="word">Fiche Word</button><button class="btn-sec" id="pdf">Fiche PDF</button><button class="btn-sec" id="pdfDossier">Fiche + dossier</button></div>
     </div>
     <div id="fiche"><div class="hint">Saisissez une adresse, ou une commune puis section/numéro.</div></div>
   </aside>
@@ -165,6 +170,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/docx@9.7.1/build/index.umd.js"></script>
 <script>
 /* ============================================================
    URBA v3 — 100% browser-side
@@ -567,10 +573,54 @@ document.getElementById("pdfDossier").addEventListener("click",async()=>{
   if(urls.length){ for(let i=0;i<urls.length;i++){ await telechargerArchive(urls[i], urls.length>1?`pieces-urbanisme-${i+1}.zip`:"pieces-urbanisme.zip"); } }
   else if(lastResults && lastResults[0]){ const c=centroid(lastResults[0].parcelle.geometry); window.open(`${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17`,"_blank"); }
 });
-document.getElementById("png").addEventListener("click",async()=>{
-  try{ const canvas=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:null});
-    const a=document.createElement("a"); a.download="urba-zonage.png"; a.href=canvas.toDataURL("image/png"); a.click();
-  }catch(e){ alert("Export PNG impossible (tuiles non-CORS). Utilisez le bouton PDF / impression."); }
+function dataUrlToBytes(d){ const b=atob(d.split(",")[1]); const u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
+function txtClean(s){ return (s||"").replace(/\s+/g," ").trim(); }
+function runsDepuis(el,D){ const out=[]; let brk=false;
+  el.childNodes.forEach(n=>{
+    if(n.nodeName==="BR"){ brk=true; return; }
+    let t,bold=false;
+    if(n.nodeType===3){ t=n.textContent.replace(/\s+/g," "); }
+    else { t=n.textContent.replace(/\s+/g," "); bold=(n.nodeName==="B"||n.nodeName==="STRONG"); }
+    if(!t || !t.trim()){ return; }
+    out.push(new D.TextRun({text:t,bold,break:brk?1:0})); brk=false;
+  });
+  return out.length?out:[new D.TextRun({text:txtClean(el.textContent)})];
+}
+document.getElementById("word").addEventListener("click",async()=>{
+  const btn=document.getElementById("word"), old=btn.textContent; btn.textContent="…"; btn.disabled=true;
+  try{
+    const D=window.docx; if(!D) throw new Error("Bibliothèque Word non chargée.");
+    const img=await captureCarte();
+    const fiche=document.getElementById("fiche").cloneNode(true);
+    fiche.querySelectorAll(".doc-link").forEach(e=>e.remove());
+    const kids=[];
+    kids.push(new D.Paragraph({children:[new D.TextRun({text:`Fiche urbanisme — éditée le ${new Date().toLocaleDateString("fr-FR")}`,color:"657D96",size:18})]}));
+    if(img){ try{ const dim=await new Promise(res=>{const im=new Image();im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight});im.onerror=()=>res(null);im.src=img;});
+      if(dim){ const W=560,H=Math.round(W*dim.h/dim.w);
+        kids.push(new D.Paragraph({spacing:{after:160},children:[new D.ImageRun({data:dataUrlToBytes(img),transformation:{width:W,height:H}})]})); } }catch(e){} }
+    fiche.querySelectorAll(".pblock").forEach(pb=>{
+      const head=pb.querySelector(".pcard-head");
+      if(head) kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_1,spacing:{before:200,after:80},children:[new D.TextRun({text:txtClean(head.textContent),bold:true,color:"0F2238",size:28})]}));
+      pb.querySelectorAll(".section").forEach(sec=>{
+        Array.from(sec.children).forEach(ch=>{
+          if(ch.tagName==="H3"){ kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_2,spacing:{before:160,after:50},children:[new D.TextRun({text:txtClean(ch.textContent),bold:true,color:"33838B",size:22})]})); }
+          else if(ch.classList.contains("zone")){ const lib=ch.querySelector(".lib"),lo=ch.querySelector(".lo");
+            const r=[]; if(lib) r.push(new D.TextRun({text:txtClean(lib.textContent),bold:true,color:"0F2238"})); if(lo) r.push(new D.TextRun({text:" — "+txtClean(lo.textContent)}));
+            kids.push(new D.Paragraph({spacing:{after:40},children:r.length?r:[new D.TextRun({text:txtClean(ch.textContent)})]})); }
+          else if(ch.classList.contains("empty")){ kids.push(new D.Paragraph({children:[new D.TextRun({text:txtClean(ch.textContent),italics:true,color:"657D96"})]})); }
+          else if(ch.classList.contains("kv")){ kids.push(new D.Paragraph({spacing:{after:30},children:runsDepuis(ch,D)})); }
+          else { const t=txtClean(ch.textContent); if(t) kids.push(new D.Paragraph({spacing:{after:30},children:[new D.TextRun({text:t,bold:ch.querySelector("b")?true:false})]})); }
+        });
+      });
+    });
+    const hint=document.querySelector("#fiche .hint"); if(hint) kids.push(new D.Paragraph({spacing:{before:160},children:[new D.TextRun({text:txtClean(hint.textContent),italics:true,size:16,color:"657D96"})]}));
+    const doc=new D.Document({sections:[{properties:{page:{margin:{top:720,bottom:720,left:720,right:720}}},children:kids}]});
+    const blob=await D.Packer.toBlob(doc);
+    const u=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=u; a.download="urba-fiche.docx"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000);
+  }catch(e){ alert("Échec de génération du Word : "+e.message); }
+  finally{ btn.textContent=old; btn.disabled=false;
+    if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
+  }
 });
 </script>
 </body>
