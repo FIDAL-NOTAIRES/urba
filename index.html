@@ -181,16 +181,13 @@ const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
 
 /* ---- carte ---- */
 const fonds={
-  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=PCI%20vecteur&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
+  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
   plan:{nom:"Plan IGN",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
   ortho:{nom:"Photo aérienne",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
 };
 const ordreFond=["cadastre","plan","ortho"];
 const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
-function creerFond(k){
-  if(k==="cadastre") return L.tileLayer.wms("https://data.geopf.fr/wms-r",{layers:"CADASTRALPARCELS.PARCELLAIRE_EXPRESS",format:"image/png",transparent:true,version:"1.3.0",maxZoom:20,crossOrigin:true,attribution:"© IGN / DGFiP"});
-  return L.tileLayer(fonds[k].url,{maxZoom:19,crossOrigin:true,attribution:"© IGN / Géoplateforme"});
-}
+function creerFond(k){ return L.tileLayer(fonds[k].url,{maxZoom:19,crossOrigin:true,attribution:"© IGN / Géoplateforme / DGFiP"}); }
 let coucheFond=creerFond("cadastre").addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
