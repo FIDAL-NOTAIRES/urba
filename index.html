@@ -178,19 +178,24 @@ const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
 
 /* ---- carte ---- */
 const fonds={
-  plan:{nom:"Plan IGN",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
-  ortho:{nom:"Photo aérienne",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
+  plan:{nom:"Plan IGN",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
+  ortho:{nom:"Photo aérienne",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
+  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
 };
+const ordreFond=["plan","ortho","cadastre"];
 const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
 let coucheFond=L.tileLayer(fonds.plan.url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
 let legendCtrl=null, lastBounds=null;
 const fondBtn=L.control({position:"topright"});
-fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : Plan IGN";b.style.cursor="pointer";
-  let cur="plan";b.onclick=(e)=>{e.stopPropagation();cur=cur==="plan"?"ortho":"plan";map.removeLayer(coucheFond);
-  coucheFond=L.tileLayer(fonds[cur].url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);coucheFond.bringToBack();
-  b.textContent="Fond : "+fonds[cur].nom;};L.DomEvent.disableClickPropagation(b);return b;};
+fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.plan.nom;b.style.cursor="pointer";
+  let i=0;b.onclick=(e)=>{e.stopPropagation(); i=(i+1)%ordreFond.length; const k=ordreFond[i];
+    map.removeLayer(coucheFond);
+    coucheFond=L.tileLayer(fonds[k].url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map); coucheFond.bringToBack();
+    document.getElementById("map").style.background=fonds[k].bg;
+    b.textContent="Fond : "+fonds[k].nom;};
+  L.DomEvent.disableClickPropagation(b);return b;};
 fondBtn.addTo(map);
 
 const PALETTE=["#6DD5DC","#E3CC7A","#FF982D","#33838B","#9CCB8E","#C58FD0","#7FA7E0","#E08F8F","#8FD0C5","#D0C28F","#A0A0C0","#88B04B"];
@@ -309,13 +314,24 @@ function ficheParcelle(R){
   if(pp.contenance) h+=`<br/><b>Contenance :</b> ${pp.contenance} m²`;
   h+=`</div></div>`;
 
-  h+=`<div class="section"><h3>Document opposable</h3>`;
+  h+=`<div class="section"><h3>Document d'urbanisme opposable</h3>`;
   if(R.info&&R.info.is_rnu) h+=`<span class="tag rnu">Commune au RNU</span>`;
   if(R.documents.length){ R.documents.forEach(d=>{const dp=d.properties;
     h+=`<div class="kv" style="margin-top:6px"><b>${dp.du_type||"DU"} :</b> ${dp.name||dp.partition||"—"}`;
     if(dp.datappro) h+=` <span class="tag">approuvé ${formatDate(dp.datappro)}</span>`; h+=`</div>`; }); }
   else if(R.info&&!R.info.is_rnu) h+=`<div class="kv empty">Aucun document publié sur le GPU pour cette emprise, alors que la commune n'est pas au RNU : un document opposable existe (possiblement non dématérialisé). À vérifier en mairie.</div>`;
   else if(!R.info) h+=`<div class="kv empty">Statut commune indisponible.</div>`;
+  let part="";
+  R.documents.forEach(d=>{ if(!part&&d.properties.partition) part=d.properties.partition; });
+  if(!part) R.zones.forEach(z=>{ if(!part&&z.properties.partition) part=z.properties.partition; });
+  if(!part) [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ if(!part&&p.properties.partition) part=p.properties.partition; });
+  if(part){ const c=centroid(R.parcelle.geometry);
+    h+=`<a class="doc-link full" href="${GPU_INFO}${encodeURIComponent(part)}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/><span style="color:#888">règlement, OAP, annexes, plans</span></a>`;
+    h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
+  }
+  const actesUniq=[...new Set(R.acteSup.map(a=>{const q=a.properties; return (q.reference||q.nomacte)?((q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP")+(q.reference?(" — réf. "+q.reference):"")):"";}).filter(x=>x))];
+  if(actesUniq.length){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">ACTES DE SERVITUDES</b></div>`;
+    actesUniq.forEach(t=>h+=`<div class="kv" style="margin:4px 0">⚖️ ${t}</div>`); }
   h+=`</div>`;
 
   h+=`<div class="section"><h3>Zonage (${R.zones.length})</h3>`;
@@ -352,30 +368,7 @@ function ficheParcelle(R){
   return h;
 }
 
-function ficheDocumentation(results){
-  const parts={}, reglements=new Set(), actes=new Set();
-  const ajoutPart=(p,meta)=>{ if(!p) return; if(!parts[p]) parts[p]={type:"",name:""}; if(meta){ if(meta.type) parts[p].type=parts[p].type||meta.type; if(meta.name) parts[p].name=parts[p].name||meta.name; } };
-  results.forEach(R=>{
-    R.documents.forEach(d=>{const dp=d.properties; ajoutPart(dp.partition,{type:dp.du_type,name:dp.name});});
-    R.zones.forEach(z=>{ ajoutPart(z.properties.partition); if(z.properties.urlfic) reglements.add(JSON.stringify({u:z.properties.urlfic,t:"Règlement zone "+(z.properties.libelle||"")})); });
-    [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ ajoutPart(p.properties.partition); if(p.properties.urlfic) reglements.add(JSON.stringify({u:p.properties.urlfic,t:"Prescription "+(p.properties.txt||"")})); });
-    R.acteSup.forEach(a=>{const q=a.properties; if(q.reference||q.nomacte) actes.add(JSON.stringify({t:(q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP"),r:q.reference||""})); });
-  });
-  let h=`<div class="section"><h3>📚 Documentation d'urbanisme</h3>`;
-  const plist=Object.keys(parts);
-  if(plist.length){ const c=centroid(results[0].parcelle.geometry);
-    plist.forEach(p=>{ const m=parts[p];
-      h+=`<a class="doc-link full" href="${GPU_INFO}${encodeURIComponent(p)}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/>${m.type||"Document d'urbanisme"}${m.name?(" — "+m.name):""} <span style="color:#888">(règlement, OAP, annexes, plans)</span></a>`;
-    });
-    h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
-  } else h+=`<div class="empty">Aucun document GPU à télécharger pour cette/ces parcelle(s).</div>`;
-  if(reglements.size){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">PIÈCES CIBLÉES</b></div>`;
-    [...reglements].map(s=>JSON.parse(s)).forEach(o=>h+=`<a class="doc-link" href="${o.u}" target="_blank" rel="noopener">📄 ${o.t}</a>`); }
-  if(actes.size){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">ACTES DE SERVITUDES</b></div>`;
-    [...actes].map(s=>JSON.parse(s)).forEach(o=>h+=`<div class="kv" style="margin:4px 0">⚖️ ${o.t}${o.r?(" — réf. "+o.r):""}</div>`); }
-  h+=`</div><div class="hint">Source : Géoportail de l'Urbanisme via API Carto (IGN). Donnée indicative — ne fait pas foi de l'opposabilité ; vérifier l'actualité du document auprès de l'autorité compétente.</div>`;
-  return h;
-}
+function disclaimer(){ return `<div class="hint">Source : Géoportail de l'Urbanisme via API Carto (IGN). Donnée indicative — ne fait pas foi de l'opposabilité ; vérifier l'actualité du document auprès de l'autorité compétente.</div>`; }
 
 async function traiter(parcelles){
   if(!parcelles.length) return;
@@ -383,7 +376,7 @@ async function traiter(parcelles){
   try{
     const results=[]; for(const p of parcelles){ results.push(await urbaPourParcelle(p)); }
     dessiner(results);
-    let h=""; results.forEach(R=>h+=ficheParcelle(R)); h+=ficheDocumentation(results);
+    let h=""; results.forEach(R=>h+=ficheParcelle(R)); h+=disclaimer();
     document.getElementById("fiche").innerHTML=h;
   }catch(e){ document.getElementById("fiche").innerHTML=`<div class="err">${e.message}</div>`; }
   finally{ document.getElementById("loading").classList.remove("on"); }
