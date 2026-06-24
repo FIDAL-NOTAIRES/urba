@@ -187,15 +187,19 @@ const fonds={
 };
 const ordreFond=["cadastre","plan","ortho"];
 const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
-let coucheFond=L.tileLayer(fonds.cadastre.url,{maxZoom:19,attribution:"© IGN / Géoplateforme / DGFiP",crossOrigin:true}).addTo(map);
+function creerFond(k){
+  if(k==="cadastre") return L.tileLayer.wms("https://data.geopf.fr/wms-r",{layers:"CADASTRALPARCELS.PARCELLAIRE_EXPRESS",format:"image/png",transparent:true,version:"1.3.0",maxZoom:20,crossOrigin:true,attribution:"© IGN / DGFiP"});
+  return L.tileLayer(fonds[k].url,{maxZoom:19,crossOrigin:true,attribution:"© IGN / Géoplateforme"});
+}
+let coucheFond=creerFond("cadastre").addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
-let legendCtrl=null, lastBounds=null, opacityZone=0.28;
+let legendCtrl=null, lastBounds=null, opacityZone=0.3;
 const fondBtn=L.control({position:"topright"});
 fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.cadastre.nom;b.style.cursor="pointer";
   let i=0;b.onclick=(e)=>{e.stopPropagation(); i=(i+1)%ordreFond.length; const k=ordreFond[i];
     map.removeLayer(coucheFond);
-    coucheFond=L.tileLayer(fonds[k].url,{maxZoom:19,attribution:"© IGN / Géoplateforme / DGFiP",crossOrigin:true}).addTo(map); coucheFond.bringToBack();
+    coucheFond=creerFond(k).addTo(map); coucheFond.bringToBack();
     document.getElementById("map").style.background=fonds[k].bg;
     b.textContent="Fond : "+fonds[k].nom;};
   L.DomEvent.disableClickPropagation(b);return b;};
@@ -203,10 +207,15 @@ fondBtn.addTo(map);
 document.getElementById("map").style.background=fonds.cadastre.bg;
 const opCtrl=L.control({position:"topright"});
 opCtrl.onAdd=()=>{const d=L.DomUtil.create("div","op-ctrl");
-  d.innerHTML=`<span>Transparence zonage</span><input type="range" min="0" max="0.6" step="0.05" value="${opacityZone}">`;
-  const r=d.querySelector("input");
-  r.addEventListener("input",()=>{ opacityZone=parseFloat(r.value); layerZones.eachLayer(l=>{ if(l.setStyle) l.setStyle({fillOpacity:opacityZone}); }); });
-  L.DomEvent.disableClickPropagation(d);return d;};
+  d.innerHTML=`<span>Transparence zonage : <b id="opVal">${Math.round(opacityZone*100)}%</b></span><input type="range" min="0" max="0.6" step="0.05" value="${opacityZone}">`;
+  const r=d.querySelector("input"), lbl=d.querySelector("#opVal");
+  const appliquer=()=>{ opacityZone=parseFloat(r.value); lbl.textContent=Math.round(opacityZone*100)+"%"; layerZones.eachLayer(l=>{ if(l.setStyle) l.setStyle({fillOpacity:opacityZone}); }); };
+  r.addEventListener("input",appliquer);
+  r.addEventListener("change",appliquer);
+  L.DomEvent.disableClickPropagation(d);
+  L.DomEvent.disableScrollPropagation(d);
+  ["mousedown","touchstart","pointerdown"].forEach(ev=>L.DomEvent.on(r,ev,L.DomEvent.stopPropagation));
+  return d;};
 opCtrl.addTo(map);
 
 const PALETTE=["#6DD5DC","#E3CC7A","#FF982D","#33838B","#9CCB8E","#C58FD0","#7FA7E0","#E08F8F","#8FD0C5","#D0C28F","#A0A0C0","#88B04B"];
@@ -283,7 +292,12 @@ async function urbaPourParcelle(parcelle){
     interroger("acte-sup",geom),
     interroger("info-surf",geom),interroger("info-lin",geom),interroger("info-pct",geom)
   ]);
-  return {parcelle,info,documents,zones,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct};
+  const details=[];
+  for(const d of documents){ const id=d.properties.id||d.properties.gpu_doc_id;
+    if(id){ try{ const dd=await jget(`https://www.geoportail-urbanisme.gouv.fr/api/document/${id}/details`);
+        details.push({type:d.properties.du_type,name:d.properties.name,archiveUrl:dd.archiveUrl||dd.archive_url||"",files:Array.isArray(dd.files)?dd.files:[]}); }
+      catch(e){ details.push({type:d.properties.du_type,name:d.properties.name,archiveUrl:"",files:[]}); } } }
+  return {parcelle,info,documents,zones,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct,details};
 }
 
 /* ---- carte : rendu ---- */
@@ -332,14 +346,15 @@ function ficheParcelle(R){
     if(dp.datappro) h+=` <span class="tag">approuvé ${formatDate(dp.datappro)}</span>`; h+=`</div>`; }); }
   else if(R.info&&!R.info.is_rnu) h+=`<div class="kv empty">Aucun document publié sur le GPU pour cette emprise, alors que la commune n'est pas au RNU : un document opposable existe (possiblement non dématérialisé). À vérifier en mairie.</div>`;
   else if(!R.info) h+=`<div class="kv empty">Statut commune indisponible.</div>`;
-  let part="";
-  R.documents.forEach(d=>{ if(!part&&d.properties.partition) part=d.properties.partition; });
-  if(!part) R.zones.forEach(z=>{ if(!part&&z.properties.partition) part=z.properties.partition; });
-  if(!part) [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ if(!part&&p.properties.partition) part=p.properties.partition; });
-  if(part){ const c=centroid(R.parcelle.geometry);
-    h+=`<a class="doc-link full" href="${GPU_INFO}${encodeURIComponent(part)}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/><span style="color:#888">règlement, OAP, annexes, plans</span></a>`;
-    h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
-  }
+  const c=centroid(R.parcelle.geometry);
+  let aArchive=false;
+  (R.details||[]).forEach(dt=>{
+    if(dt.archiveUrl){ aArchive=true;
+      h+=`<a class="doc-link full" href="${dt.archiveUrl}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/><span style="color:#888">archive complète — règlement, OAP, annexes, plans</span></a>`; }
+    (dt.files||[]).forEach(f=>{ const u=f.url||f.href||f.lien||""; const n=f.name||f.title||f.libelle||f.nom||"Pièce"; if(/^https?:/i.test(u)) h+=`<a class="doc-link" href="${u}" target="_blank" rel="noopener">📄 ${n}</a>`; });
+  });
+  if(!aArchive){ h+=`<a class="doc-link full" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener"><b>📥 Ouvrir le document sur le Géoportail</b><br/><span style="color:#888">pièces écrites & téléchargement complet</span></a>`; }
+  else { h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`; }
   const supTypes=new Set([...R.supS,...R.supL,...R.supP].map(s=>s.properties.suptype).filter(Boolean));
   const actesUniq=[...new Set(R.acteSup.filter(a=>supTypes.has(a.properties.suptype)).map(a=>{const q=a.properties; return (q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP")+(q.reference?(" — réf. "+q.reference):"");}))];
   if(actesUniq.length){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">ACTES DE SERVITUDES</b></div>`;
