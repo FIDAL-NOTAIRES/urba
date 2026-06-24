@@ -178,25 +178,26 @@ const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
 
 /* ---- carte ---- */
 const fonds={
+  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=PCI%20vecteur&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
   plan:{nom:"Plan IGN",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
-  ortho:{nom:"Photo aérienne",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
-  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
+  ortho:{nom:"Photo aérienne",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
 };
-const ordreFond=["plan","ortho","cadastre"];
+const ordreFond=["cadastre","plan","ortho"];
 const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
-let coucheFond=L.tileLayer(fonds.plan.url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);
+let coucheFond=L.tileLayer(fonds.cadastre.url,{maxZoom:19,attribution:"© IGN / Géoplateforme / DGFiP",crossOrigin:true}).addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
 let legendCtrl=null, lastBounds=null;
 const fondBtn=L.control({position:"topright"});
-fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.plan.nom;b.style.cursor="pointer";
+fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.cadastre.nom;b.style.cursor="pointer";
   let i=0;b.onclick=(e)=>{e.stopPropagation(); i=(i+1)%ordreFond.length; const k=ordreFond[i];
     map.removeLayer(coucheFond);
-    coucheFond=L.tileLayer(fonds[k].url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map); coucheFond.bringToBack();
+    coucheFond=L.tileLayer(fonds[k].url,{maxZoom:19,attribution:"© IGN / Géoplateforme / DGFiP",crossOrigin:true}).addTo(map); coucheFond.bringToBack();
     document.getElementById("map").style.background=fonds[k].bg;
     b.textContent="Fond : "+fonds[k].nom;};
   L.DomEvent.disableClickPropagation(b);return b;};
 fondBtn.addTo(map);
+document.getElementById("map").style.background=fonds.cadastre.bg;
 
 const PALETTE=["#6DD5DC","#E3CC7A","#FF982D","#33838B","#9CCB8E","#C58FD0","#7FA7E0","#E08F8F","#8FD0C5","#D0C28F","#A0A0C0","#88B04B"];
 const colorMap={};
@@ -329,7 +330,8 @@ function ficheParcelle(R){
     h+=`<a class="doc-link full" href="${GPU_INFO}${encodeURIComponent(part)}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/><span style="color:#888">règlement, OAP, annexes, plans</span></a>`;
     h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
   }
-  const actesUniq=[...new Set(R.acteSup.map(a=>{const q=a.properties; return (q.reference||q.nomacte)?((q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP")+(q.reference?(" — réf. "+q.reference):"")):"";}).filter(x=>x))];
+  const supTypes=new Set([...R.supS,...R.supL,...R.supP].map(s=>s.properties.suptype).filter(Boolean));
+  const actesUniq=[...new Set(R.acteSup.filter(a=>supTypes.has(a.properties.suptype)).map(a=>{const q=a.properties; return (q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP")+(q.reference?(" — réf. "+q.reference):"");}))];
   if(actesUniq.length){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">ACTES DE SERVITUDES</b></div>`;
     actesUniq.forEach(t=>h+=`<div class="kv" style="margin:4px 0">⚖️ ${t}</div>`); }
   h+=`</div>`;
