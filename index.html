@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>URBA — L'urbanisme de vos parcelles</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --nuit:#0F2238; --canard:#33838B; --cyan:#6DD5DC; --teal:#4E98A0;
+    --gris:#657D96; --or:#E3CC7A; --orange:#FF982D; --rouge:#b3261e; --vert:#2e8b57;
+    --fond:#f4f6f8; --trait:#e2e8ee;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,sans-serif;color:var(--nuit);background:var(--fond)}
+  h1,h2,h3{font-family:Georgia,"Times New Roman",serif;font-weight:600;margin:0}
+  a{color:var(--canard)}
+  header{background:linear-gradient(135deg,#16314f,#091525);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:14px}
+  header .logo{width:40px;height:40px;flex:0 0 40px}
+  header h1{font-size:20px;line-height:1.1}
+  header .sub{font-size:12px;color:var(--cyan);letter-spacing:.3px;font-family:"Segoe UI",sans-serif}
+
+  .entry{background:#fff;border-bottom:1px solid var(--trait);padding:16px 20px}
+  .entry-grid{display:flex;gap:18px;flex-wrap:wrap;align-items:stretch}
+  .card{flex:1 1 360px;min-width:320px;border:1px solid var(--trait);border-radius:12px;padding:14px 16px;background:#fafcfd;display:flex;flex-direction:column}
+  .go-row{margin-top:auto;padding-top:10px}
+  .go-row .btn-go{width:100%}
+  .card-t{font-size:14px;color:var(--nuit);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .card-t .dot{width:8px;height:8px;border-radius:50%;background:var(--canard)}
+  label{font-size:11px;color:var(--gris);text-transform:uppercase;letter-spacing:.4px}
+  input{border:1px solid var(--trait);border-radius:8px;padding:9px 11px;font-size:14px;font-family:inherit;background:#fff}
+  input:focus{outline:none;border-color:var(--canard);box-shadow:0 0 0 3px rgba(51,131,139,.15)}
+  button{cursor:pointer;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;padding:9px 16px;transition:.15s}
+  .btn-go{background:var(--canard);color:#fff}.btn-go:hover{background:var(--teal)}
+  .btn-sec{background:#eef2f5;color:var(--nuit)}.btn-sec:hover{background:#e2e8ee}
+
+  /* --- adresse + micro --- */
+  .addr-row{display:flex;gap:8px;align-items:center}
+  .addr-wrap{position:relative;flex:1}
+  .addr-wrap input{width:100%}
+  .mic-btn{flex:0 0 auto;background:var(--canard);color:#fff;padding:9px 12px;line-height:0;display:flex;align-items:center;justify-content:center}
+  .mic-btn svg{width:18px;height:18px;display:block}
+  .mic-btn:hover{background:var(--teal)}
+  .mic-btn.rec{background:var(--rouge);animation:pulse 1s infinite}
+  .mic-btn:disabled{background:#cbd5dc;cursor:default}
+  @keyframes pulse{50%{opacity:.55}}
+  .speech{margin-top:8px;font-size:13px;color:var(--gris);min-height:18px}
+  .sugg{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--trait);border-top:none;border-radius:0 0 8px 8px;z-index:1000;max-height:240px;overflow-y:auto;display:none}
+  .sugg.on{display:block}
+  .sugg div{padding:9px 12px;font-size:14px;cursor:pointer;border-top:1px solid #f0f3f5}
+  .sugg div:hover{background:#f2f8f9}
+
+  /* --- références --- */
+  .commune-wrap{position:relative;margin-bottom:8px}
+  .commune-wrap input{width:100%}
+  .cstatus{display:block;font-size:12px;margin-top:4px;min-height:16px}
+  .cstatus.ok{color:var(--vert)}.cstatus.ko{color:var(--rouge)}
+  .parcelrow{display:flex;gap:8px;align-items:flex-end;margin-bottom:8px}
+  .parcelrow .f{display:flex;flex-direction:column;gap:3px}
+  .parcelrow .sec input{width:90px;text-transform:uppercase}
+  .parcelrow .num input{width:100px}
+  .parcelrow .rm{background:#fdeceb;color:var(--rouge);padding:9px 11px}
+  .row-actions{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+
+  .main{display:flex;height:calc(100vh - 250px);min-height:460px}
+  #map{flex:1;background:#dfe6ea;z-index:0}
+  .panel{width:400px;flex:0 0 400px;background:#fff;border-left:1px solid var(--trait);overflow-y:auto}
+  .panel .ph{padding:14px 16px;border-bottom:1px solid var(--trait);position:sticky;top:0;background:#fff;z-index:2;display:flex;justify-content:space-between;align-items:center}
+  .panel .ph h2{font-size:16px}.panel .ph .actions{display:flex;gap:6px}
+  .panel .ph .actions button{padding:6px 10px;font-size:12px}
+  .pblock{border-bottom:6px solid #f4f6f8}
+  .section{padding:12px 16px;border-bottom:1px solid var(--trait)}
+  .section h3{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--canard);margin-bottom:8px}
+  .pcard-head{padding:12px 16px;background:#f7f9fb;border-bottom:1px solid var(--trait);font-family:Georgia,serif;font-size:15px;font-weight:600}
+  .kv{font-size:13px;line-height:1.55}.kv b{color:var(--gris);font-weight:600}
+  .zone{border-left:4px solid var(--cyan);padding:6px 0 6px 10px;margin:8px 0}
+  .zone .lib{font-weight:700;font-size:14px}.zone .lo{font-size:12px;color:var(--gris);margin:2px 0}
+  .doc-link{display:block;padding:7px 10px;margin:5px 0;background:#f2f8f9;border:1px solid #d8eaec;border-radius:8px;font-size:13px;text-decoration:none;color:var(--nuit)}
+  .doc-link:hover{background:#e6f3f4}
+  .doc-link.full{background:#fff6e0;border-color:#ecd9a3}
+  .doc-link b{color:var(--canard)}
+  .tag{display:inline-block;background:#eef2f5;border-radius:6px;padding:2px 8px;font-size:11px;margin:2px 4px 2px 0}
+  .tag.rnu{background:#ffe9d6;color:#b35a00}
+  .empty{color:var(--gris);font-size:13px;font-style:italic}
+  .hint{padding:10px 16px;font-size:12px;color:var(--gris)}
+  .err{padding:12px 16px;color:var(--rouge);font-size:13px;background:#fdeceb}
+  .legend{background:rgba(255,255,255,.95);padding:8px 10px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.2);font-size:12px;line-height:1.6;max-width:220px}
+  .legend .lt{font-weight:700;margin-bottom:4px}
+  .legend .row{display:flex;align-items:center;gap:6px}
+  .legend .sw{width:14px;height:14px;border-radius:3px;flex:0 0 14px;border:1px solid rgba(0,0,0,.2)}
+  .zlabel{background:transparent;border:none;box-shadow:none;font-weight:700;font-size:13px;color:#13414a;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff}
+  .loading{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.75);z-index:500;font-weight:600;color:var(--canard);text-align:center;padding:20px}
+  .loading.on{display:flex}
+  @media(max-width:860px){
+    .main{flex-direction:column;height:auto}#map{height:55vh}
+    .panel{width:100%;flex:1 1 auto;border-left:none;border-top:1px solid var(--trait)}
+  }
+  @media print{ header .sub,.entry,.panel .ph .actions{display:none} .main{height:auto;display:block} #map{height:480px} .panel{width:100%} }
+</style>
+</head>
+<body>
+<header>
+  <svg class="logo" viewBox="0 0 78 78" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke="#6DD5DC" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 60 V30 L33 18 L50 30 V60"/><path d="M50 60 V40 L62 33 L62 60"/>
+    </g>
+    <rect x="24" y="42" width="9" height="9" rx="1.5" fill="#E3CC7A"/>
+    <rect x="35" y="42" width="9" height="9" rx="1.5" fill="#33838B"/>
+    <rect x="53" y="46" width="6" height="6" rx="1" fill="#FF982D"/>
+  </svg>
+  <div><h1>URBA</h1><div class="sub">L'urbanisme de vos parcelles</div></div>
+</header>
+
+<div class="entry">
+  <div class="entry-grid">
+
+    <!-- ADRESSE + micro -->
+    <div class="card">
+      <div class="card-t"><span class="dot"></span> Par adresse</div>
+      <label>Commune et adresse</label>
+      <div class="addr-row">
+        <div class="addr-wrap">
+          <input id="addr" placeholder="63 rue de Paris, La Madeleine" autocomplete="off"/>
+          <div class="sugg" id="sugg"></div>
+        </div>
+        <button class="mic-btn" id="mic" title="Dicter l'adresse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      </div>
+      <div class="speech" id="speech"></div>
+      <div class="go-row"><button class="btn-go" id="goAddr">Voir l'urbanisme</button></div>
+    </div>
+
+    <!-- REFERENCES CADASTRALES -->
+    <div class="card">
+      <div class="card-t"><span class="dot"></span> Par références cadastrales</div>
+      <div class="commune-wrap">
+        <label>Commune ou code postal</label>
+        <input id="commune" placeholder="La Madeleine ou 59110" autocomplete="off"/>
+        <div class="sugg" id="csugg"></div>
+        <span class="cstatus" id="cstatus"></span>
+      </div>
+      <div id="parcelrows"></div>
+      <div class="row-actions">
+        <button class="btn-sec" id="addParcel">+ Ajouter une parcelle</button>
+      </div>
+      <div class="go-row"><button class="btn-go" id="goRefs">Voir l'urbanisme</button></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="main">
+  <div style="position:relative;flex:1;display:flex">
+    <div id="map"></div>
+    <div class="loading" id="loading">Interrogation du Géoportail de l'Urbanisme…</div>
+  </div>
+  <aside class="panel">
+    <div class="ph"><h2>Fiche urbanisme</h2>
+      <div class="actions"><button class="btn-sec" id="png">PNG</button><button class="btn-sec" id="pdf">PDF</button></div>
+    </div>
+    <div id="fiche"><div class="hint">Saisissez une adresse, ou une commune puis section/numéro.</div></div>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+/* ============================================================
+   URBA v3 — 100% browser-side
+   Adresse : BAN + dictée (Web Speech)
+   Références : commune/CP validée (geo.api.gouv.fr) -> INSEE, + section/numéro (multi)
+   Données : API Carto (apicarto.ign.fr) -> cadastre + GPU
+   Doc : règlements (urlfic) + archive CNIG (download-by-partition)
+   ============================================================ */
+const APICARTO="https://apicarto.ign.fr/api";
+const GPU=APICARTO+"/gpu";
+const BAN="https://api-adresse.data.gouv.fr/search/";
+const GEOAPI="https://geo.api.gouv.fr/communes";
+const GPU_DL="https://www.geoportail-urbanisme.gouv.fr/api/document/download-by-partition/";
+const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
+
+/* ---- carte ---- */
+const fonds={
+  plan:{nom:"Plan IGN",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
+  ortho:{nom:"Photo aérienne",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
+};
+const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
+let coucheFond=L.tileLayer(fonds.plan.url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);
+const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
+      layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
+let legendCtrl=null;
+const fondBtn=L.control({position:"topright"});
+fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : Plan IGN";b.style.cursor="pointer";
+  let cur="plan";b.onclick=(e)=>{e.stopPropagation();cur=cur==="plan"?"ortho":"plan";map.removeLayer(coucheFond);
+  coucheFond=L.tileLayer(fonds[cur].url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);coucheFond.bringToBack();
+  b.textContent="Fond : "+fonds[cur].nom;};L.DomEvent.disableClickPropagation(b);return b;};
+fondBtn.addTo(map);
+
+const PALETTE=["#6DD5DC","#E3CC7A","#FF982D","#33838B","#9CCB8E","#C58FD0","#7FA7E0","#E08F8F","#8FD0C5","#D0C28F","#A0A0C0","#88B04B"];
+const colorMap={};
+function couleurZone(lib){ if(!(lib in colorMap)) colorMap[lib]=PALETTE[Object.keys(colorMap).length%PALETTE.length]; return colorMap[lib]; }
+
+async function jget(url){ const r=await fetch(url,{headers:{Accept:"application/json"}}); if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
+function pad(s,n){ s=(s||"").trim(); while(s.length<n) s="0"+s; return s; }
+
+/* ---- géocodage adresse (BAN) ---- */
+async function geocoder(q,limit=5){
+  const fc=await jget(`${BAN}?q=${encodeURIComponent(q)}&limit=${limit}`);
+  return (fc.features||[]).map(f=>({label:f.properties.label,lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1]}));
+}
+/* ---- communes (geo.api.gouv.fr) : nom ou code postal -> INSEE ---- */
+async function chercherCommunes(q){
+  q=q.trim(); if(q.length<2) return [];
+  const champs="fields=nom,code,codesPostaux&format=json";
+  const url=/^\d{5}$/.test(q)
+    ? `${GEOAPI}?codePostal=${q}&${champs}`
+    : `${GEOAPI}?nom=${encodeURIComponent(q)}&boost=population&limit=7&${champs}`;
+  const arr=await jget(url);
+  return (Array.isArray(arr)?arr:[]).map(c=>({nom:c.nom,insee:c.code,cps:c.codesPostaux||[]}));
+}
+/* ---- parcelles ---- */
+async function parcelleAuPoint(lon,lat){
+  const geom={type:"Point",coordinates:[lon,lat]};
+  const fc=await jget(`${APICARTO}/cadastre/parcelle?geom=${encodeURIComponent(JSON.stringify(geom))}`);
+  if(!fc.features||!fc.features.length) throw new Error("Aucune parcelle cadastrale à cette adresse.");
+  return fc.features[0];
+}
+async function parcelleParRef(insee,section,numero){
+  const sec=pad(section.toUpperCase(),2), num=pad(numero,4);
+  const fc=await jget(`${APICARTO}/cadastre/parcelle?code_insee=${encodeURIComponent(insee)}&section=${encodeURIComponent(sec)}&numero=${encodeURIComponent(num)}`);
+  if(!fc.features||!fc.features.length) throw new Error(`Parcelle introuvable : ${insee} ${sec} ${num}.`);
+  return fc.features[0];
+}
+async function interroger(couche,geom){
+  try{ const fc=await jget(`${GPU}/${couche}?geom=${encodeURIComponent(JSON.stringify(geom))}`); return (fc&&fc.features)||[]; }
+  catch(e){ console.warn(couche,e.message); return []; }
+}
+async function commune(insee){ try{ const fc=await jget(`${GPU}/municipality?insee=${encodeURIComponent(insee)}`); return (fc.features&&fc.features[0])?fc.features[0].properties:null; }catch(e){ return null; } }
+
+async function urbaPourParcelle(parcelle){
+  const geom=parcelle.geometry, insee=parcelle.properties.code_insee;
+  const [info,documents,zones,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct]=await Promise.all([
+    commune(insee),
+    interroger("document",geom),interroger("zone-urba",geom),
+    interroger("prescription-surf",geom),interroger("prescription-lin",geom),interroger("prescription-pct",geom),
+    interroger("assiette-sup-s",geom),interroger("assiette-sup-l",geom),interroger("assiette-sup-p",geom),
+    interroger("acte-sup",geom),
+    interroger("info-surf",geom),interroger("info-lin",geom),interroger("info-pct",geom)
+  ]);
+  return {parcelle,info,documents,zones,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct};
+}
+
+/* ---- carte : rendu ---- */
+function vider(){ [layerParcelle,layerZones,layerPresc,layerSup,layerLabels].forEach(l=>l.clearLayers()); if(legendCtrl){map.removeControl(legendCtrl);legendCtrl=null;} }
+function centroid(geom){ let xs=0,ys=0,n=0; const w=c=>{ if(typeof c[0]==="number"){xs+=c[0];ys+=c[1];n++;} else c.forEach(w); }; w(geom.coordinates); return [ys/n,xs/n]; }
+
+function dessiner(results){
+  vider(); const bounds=[];
+  results.forEach(R=>{
+    const pl=L.geoJSON(R.parcelle.geometry,{style:{color:"#0F2238",weight:3,fill:false}}).addTo(layerParcelle);
+    try{ bounds.push(pl.getBounds()); }catch(e){}
+    R.zones.forEach(z=>{ const lib=z.properties.libelle||"—",col=couleurZone(lib);
+      L.geoJSON(z.geometry,{style:{color:col,weight:1.5,fillColor:col,fillOpacity:.35}}).addTo(layerZones);
+      L.marker(centroid(z.geometry),{icon:L.divIcon({className:"zlabel",html:lib})}).addTo(layerLabels); });
+    R.prescSurf.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:2,fillColor:"#FF982D",fillOpacity:.15,dashArray:"5 4"}}).addTo(layerPresc));
+    R.prescLin.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:3,dashArray:"5 4"}}).addTo(layerPresc));
+    R.supS.forEach(s=>L.geoJSON(s.geometry,{style:{color:"#b3261e",weight:2,fillColor:"#b3261e",fillOpacity:.12,dashArray:"2 3"}}).addTo(layerSup));
+  });
+  if(bounds.length){ let b=bounds[0]; bounds.slice(1).forEach(x=>b=b.extend(x)); try{ map.fitBounds(b.pad(0.6),{maxZoom:18}); }catch(e){} }
+  const libs=[...new Set(results.flatMap(R=>R.zones.map(z=>z.properties.libelle||"—")))];
+  const anyP=results.some(R=>R.prescSurf.length||R.prescLin.length), anyS=results.some(R=>R.supS.length);
+  legendCtrl=L.control({position:"bottomleft"});
+  legendCtrl.onAdd=()=>{const d=L.DomUtil.create("div","legend");let h='<div class="lt">Zonage</div>';
+    if(libs.length) libs.forEach(l=>h+=`<div class="row"><span class="sw" style="background:${couleurZone(l)}"></span>${l}</div>`);
+    else h+='<div class="row">aucune zone</div>';
+    if(anyP) h+='<div class="row"><span class="sw" style="background:#FF982D"></span>Prescription</div>';
+    if(anyS) h+='<div class="row"><span class="sw" style="background:#b3261e"></span>Servitude (SUP)</div>';
+    d.innerHTML=h;return d;};
+  legendCtrl.addTo(map);
+}
+
+function formatDate(d){ if(!d) return ""; d=""+d; if(d.length!==8) return d; return d.slice(6,8)+"/"+d.slice(4,6)+"/"+d.slice(0,4); }
+
+function ficheParcelle(R){
+  const pp=R.parcelle.properties||{}; let h="";
+  h+=`<div class="pblock">`;
+  h+=`<div class="pcard-head">${pp.nom_com||(R.info&&R.info.name)||"Parcelle"} — ${pp.section||"?"} ${pp.numero||"?"}</div>`;
+  h+=`<div class="section"><h3>Parcelle</h3><div class="kv"><b>INSEE :</b> ${pp.code_insee||"—"}`;
+  if(pp.contenance) h+=`<br/><b>Contenance :</b> ${pp.contenance} m²`;
+  h+=`</div></div>`;
+
+  h+=`<div class="section"><h3>Document opposable</h3>`;
+  if(R.info&&R.info.is_rnu) h+=`<span class="tag rnu">Commune au RNU</span>`;
+  if(R.documents.length){ R.documents.forEach(d=>{const dp=d.properties;
+    h+=`<div class="kv" style="margin-top:6px"><b>${dp.du_type||"DU"} :</b> ${dp.name||dp.partition||"—"}`;
+    if(dp.datappro) h+=` <span class="tag">approuvé ${formatDate(dp.datappro)}</span>`; h+=`</div>`; }); }
+  else if(R.info&&!R.info.is_rnu) h+=`<div class="kv empty">Aucun document publié sur le GPU pour cette emprise, alors que la commune n'est pas au RNU : un document opposable existe (possiblement non dématérialisé). À vérifier en mairie.</div>`;
+  else if(!R.info) h+=`<div class="kv empty">Statut commune indisponible.</div>`;
+  h+=`</div>`;
+
+  h+=`<div class="section"><h3>Zonage (${R.zones.length})</h3>`;
+  if(R.zones.length){ R.zones.forEach(z=>{const zp=z.properties;
+    h+=`<div class="zone" style="border-color:${couleurZone(zp.libelle||"—")}"><div class="lib">${zp.libelle||"—"}</div>`;
+    if(zp.libelong) h+=`<div class="lo">${zp.libelong}</div>`;
+    if(zp.typezone) h+=`<span class="tag">${zp.typezone}</span>`;
+    if(zp.destdomi) h+=`<span class="tag">${zp.destdomi}</span>`;
+    if(zp.urlfic) h+=`<div style="margin-top:4px"><a href="${zp.urlfic}" target="_blank" rel="noopener">📄 Règlement de la zone</a></div>`;
+    h+=`</div>`; }); }
+  else h+=`<div class="empty">Aucune zone.</div>`;
+  h+=`</div>`;
+
+  const presc=[...R.prescSurf,...R.prescLin,...R.prescPct];
+  h+=`<div class="section"><h3>Prescriptions (${presc.length})</h3>`;
+  if(presc.length) presc.forEach(p=>{const q=p.properties;
+    h+=`<div class="kv" style="margin:5px 0"><b>${q.txt||q.typepsc||"Prescription"} :</b> ${q.libelle||""}`;
+    if(q.urlfic) h+=` <a href="${q.urlfic}" target="_blank" rel="noopener">📄</a>`; h+=`</div>`; });
+  else h+=`<div class="empty">Aucune.</div>`;
+  h+=`</div>`;
+
+  const sup=[...R.supS,...R.supL,...R.supP];
+  h+=`<div class="section"><h3>Servitudes d'utilité publique (${sup.length})</h3>`;
+  if(sup.length) sup.forEach(s=>{const q=s.properties; h+=`<div class="kv" style="margin:5px 0"><span class="tag">${q.suptype||"SUP"}</span> ${q.nomass||q.typeass||""}</div>`; });
+  else h+=`<div class="empty">Aucune.</div>`;
+  h+=`</div>`;
+
+  const infos=[...R.infoSurf,...R.infoLin,...R.infoPct];
+  if(infos.length){ h+=`<div class="section"><h3>Périmètres d'information (${infos.length})</h3>`;
+    infos.forEach(i=>{const q=i.properties; h+=`<div class="kv" style="margin:5px 0"><b>${q.txt||q.typeinf||"Info"} :</b> ${q.libelle||""}</div>`; }); h+=`</div>`; }
+  h+=`</div>`;
+  return h;
+}
+
+function ficheDocumentation(results){
+  const docs={}, reglements=new Set(), actes=new Set();
+  results.forEach(R=>{
+    R.documents.forEach(d=>{const dp=d.properties; if(dp.partition) docs[dp.partition]={type:dp.du_type,name:dp.name,partition:dp.partition};});
+    R.zones.forEach(z=>{ if(z.properties.urlfic) reglements.add(JSON.stringify({u:z.properties.urlfic,t:"Règlement zone "+(z.properties.libelle||"")})); });
+    [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ if(p.properties.urlfic) reglements.add(JSON.stringify({u:p.properties.urlfic,t:"Prescription "+(p.properties.txt||"")})); });
+    R.acteSup.forEach(a=>{const q=a.properties; if(q.reference||q.nomacte) actes.add(JSON.stringify({t:(q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP"),r:q.reference||""})); });
+  });
+  let h=`<div class="section"><h3>📚 Documentation d'urbanisme</h3>`;
+  const dlist=Object.values(docs);
+  if(dlist.length){ const c=centroid(results[0].parcelle.geometry);
+    dlist.forEach(d=>{
+      h+=`<a class="doc-link full" href="${GPU_DL}${encodeURIComponent(d.partition)}" target="_blank" rel="noopener"><b>⬇ Archive complète — ${d.type||"DU"}</b><br/>${d.name||d.partition} <span style="color:#888">(règlement intégral, OAP, annexes, plans — format CNIG)</span></a>`;
+      h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
+    });
+  } else h+=`<div class="empty">Aucun document GPU à télécharger pour cette/ces parcelle(s).</div>`;
+  if(reglements.size){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">PIÈCES CIBLÉES</b></div>`;
+    [...reglements].map(s=>JSON.parse(s)).forEach(o=>h+=`<a class="doc-link" href="${o.u}" target="_blank" rel="noopener">📄 ${o.t}</a>`); }
+  if(actes.size){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">ACTES DE SERVITUDES</b></div>`;
+    [...actes].map(s=>JSON.parse(s)).forEach(o=>h+=`<div class="kv" style="margin:4px 0">⚖️ ${o.t}${o.r?(" — réf. "+o.r):""}</div>`); }
+  h+=`</div><div class="hint">Source : Géoportail de l'Urbanisme via API Carto (IGN). Donnée indicative — ne fait pas foi de l'opposabilité ; vérifier l'actualité du document auprès de l'autorité compétente.</div>`;
+  return h;
+}
+
+async function traiter(parcelles){
+  if(!parcelles.length) return;
+  document.getElementById("loading").classList.add("on");
+  try{
+    const results=[]; for(const p of parcelles){ results.push(await urbaPourParcelle(p)); }
+    dessiner(results);
+    let h=""; results.forEach(R=>h+=ficheParcelle(R)); h+=ficheDocumentation(results);
+    document.getElementById("fiche").innerHTML=h;
+  }catch(e){ document.getElementById("fiche").innerHTML=`<div class="err">${e.message}</div>`; }
+  finally{ document.getElementById("loading").classList.remove("on"); }
+}
+function erreur(msg){ document.getElementById("fiche").innerHTML=`<div class="err">${msg}</div>`; }
+
+/* ===================== ENTRÉE 1 : ADRESSE + MICRO ===================== */
+let selFeature=null,debA=null;
+const addr=document.getElementById("addr"),sugg=document.getElementById("sugg");
+addr.addEventListener("input",()=>{ selFeature=null; clearTimeout(debA);
+  const q=addr.value.trim(); if(q.length<3){ sugg.classList.remove("on"); return; }
+  debA=setTimeout(async()=>{ try{ const list=await geocoder(q,5);
+    sugg.innerHTML=list.map((f,i)=>`<div data-i="${i}">${f.label}</div>`).join("");
+    sugg._list=list; sugg.classList.toggle("on",list.length>0);
+  }catch(e){ sugg.classList.remove("on"); } },250);
+});
+sugg.addEventListener("click",e=>{ const d=e.target.closest("div[data-i]"); if(!d) return;
+  selFeature=sugg._list[+d.dataset.i]; addr.value=selFeature.label; sugg.classList.remove("on"); });
+
+async function lancerAdresse(){
+  let f=selFeature;
+  try{
+    if(!f){ const q=addr.value.trim(); if(!q) return erreur("Saisissez une adresse."); const list=await geocoder(q,1); if(!list.length) throw new Error("Adresse introuvable."); f=list[0]; }
+    document.getElementById("loading").classList.add("on");
+    const parcelle=await parcelleAuPoint(f.lon,f.lat);
+    document.getElementById("loading").classList.remove("on");
+    await traiter([parcelle]);
+  }catch(e){ document.getElementById("loading").classList.remove("on"); erreur(e.message); }
+}
+document.getElementById("goAddr").addEventListener("click",lancerAdresse);
+addr.addEventListener("keydown",e=>{ if(e.key==="Enter"){ sugg.classList.remove("on"); lancerAdresse(); } });
+
+/* micro */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const micBtn=document.getElementById("mic"),speech=document.getElementById("speech");
+if(!SR){ micBtn.disabled=true; speech.textContent="Dictée indisponible sur ce navigateur (Chrome recommandé)."; }
+else{
+  const rec=new SR(); rec.lang="fr-FR"; rec.interimResults=false; rec.maxAlternatives=1; rec.continuous=false;
+  micBtn.addEventListener("click",()=>{ try{ rec.start(); micBtn.classList.add("rec"); speech.textContent="À l'écoute…"; }catch(e){} });
+  rec.onresult=async(ev)=>{ const txt=ev.results[0][0].transcript; speech.textContent="« "+txt+" »"; addr.value=txt; selFeature=null; await lancerAdresse(); };
+  rec.onerror=(e)=>{ speech.textContent="Erreur dictée : "+e.error; };
+  rec.onend=()=>{ micBtn.classList.remove("rec"); };
+}
+
+/* ===================== ENTRÉE 2 : COMMUNE/CP VALIDÉE + SECTION/NUMÉRO ===================== */
+let selCommune=null,debC=null;
+const commune_i=document.getElementById("commune"),csugg=document.getElementById("csugg"),cstatus=document.getElementById("cstatus");
+function majStatut(){
+  if(selCommune){ cstatus.className="cstatus ok"; cstatus.textContent="✓ "+selCommune.nom+" — INSEE "+selCommune.insee; }
+  else if(commune_i.value.trim().length>=2){ cstatus.className="cstatus ko"; cstatus.textContent="Sélectionnez une commune dans la liste."; }
+  else { cstatus.className="cstatus"; cstatus.textContent=""; }
+}
+commune_i.addEventListener("input",()=>{ selCommune=null; majStatut(); clearTimeout(debC);
+  const q=commune_i.value.trim(); if(q.length<2){ csugg.classList.remove("on"); return; }
+  debC=setTimeout(async()=>{ try{ const list=await chercherCommunes(q);
+    csugg.innerHTML=list.map((c,i)=>`<div data-i="${i}">${c.nom} <span style="color:#888">(${c.insee}${c.cps&&c.cps.length?" · "+c.cps.slice(0,3).join(", "):""})</span></div>`).join("");
+    csugg._list=list; csugg.classList.toggle("on",list.length>0);
+  }catch(e){ csugg.classList.remove("on"); } },250);
+});
+csugg.addEventListener("click",e=>{ const d=e.target.closest("div[data-i]"); if(!d) return;
+  selCommune=csugg._list[+d.dataset.i]; commune_i.value=selCommune.nom; csugg.classList.remove("on"); majStatut(); });
+
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".addr-wrap")) sugg.classList.remove("on");
+  if(!e.target.closest(".commune-wrap")) csugg.classList.remove("on");
+});
+
+const parcelrows=document.getElementById("parcelrows");
+function ajouterParcelle(section="",numero=""){
+  const row=document.createElement("div"); row.className="parcelrow";
+  row.innerHTML=`
+    <div class="f sec"><label>Section</label><input class="s" placeholder="AB" value="${section}"/></div>
+    <div class="f num"><label>N° parcelle</label><input class="n" placeholder="142" value="${numero}"/></div>
+    <button class="rm" title="Retirer">✕</button>`;
+  row.querySelector(".rm").addEventListener("click",()=>{ if(parcelrows.children.length>1) row.remove(); });
+  parcelrows.appendChild(row);
+}
+ajouterParcelle();
+document.getElementById("addParcel").addEventListener("click",()=>ajouterParcelle());
+
+document.getElementById("goRefs").addEventListener("click",async()=>{
+  if(!selCommune){ majStatut(); return erreur("Sélectionnez d'abord une commune/code postal valide dans la liste."); }
+  const rows=[...parcelrows.querySelectorAll(".parcelrow")];
+  const refs=rows.map(r=>({section:r.querySelector(".s").value.trim(),numero:r.querySelector(".n").value.trim()}))
+                 .filter(r=>r.section&&r.numero);
+  if(!refs.length) return erreur("Renseignez au moins une section et un numéro.");
+  document.getElementById("loading").classList.add("on");
+  try{
+    const parcelles=[];
+    for(const r of refs){ try{ parcelles.push(await parcelleParRef(selCommune.insee,r.section,r.numero)); }catch(e){ console.warn(e.message); } }
+    document.getElementById("loading").classList.remove("on");
+    if(!parcelles.length) throw new Error("Aucune des parcelles saisies n'a été trouvée pour "+selCommune.nom+".");
+    await traiter(parcelles);
+  }catch(e){ document.getElementById("loading").classList.remove("on"); erreur(e.message); }
+});
+
+/* ===================== EXPORTS ===================== */
+document.getElementById("pdf").addEventListener("click",()=>window.print());
+document.getElementById("png").addEventListener("click",async()=>{
+  try{ const canvas=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:null});
+    const a=document.createElement("a"); a.download="urba-zonage.png"; a.href=canvas.toDataURL("image/png"); a.click();
+  }catch(e){ alert("Export PNG impossible (tuiles non-CORS). Utilisez le bouton PDF / impression."); }
+});
+</script>
+</body>
+</html>
