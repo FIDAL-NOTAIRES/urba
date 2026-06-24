@@ -66,7 +66,7 @@
   #map{flex:1;background:#dfe6ea;z-index:0}
   .panel{width:400px;flex:0 0 400px;background:#fff;border-left:1px solid var(--trait);overflow-y:auto}
   .panel .ph{padding:14px 16px;border-bottom:1px solid var(--trait);position:sticky;top:0;background:#fff;z-index:2;display:flex;justify-content:space-between;align-items:center}
-  .panel .ph h2{font-size:16px}.panel .ph .actions{display:flex;gap:6px}
+  .panel .ph h2{font-size:16px}.panel .ph .actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
   .panel .ph .actions button{padding:6px 10px;font-size:12px}
   .pblock{border-bottom:6px solid #f4f6f8}
   .section{padding:12px 16px;border-bottom:1px solid var(--trait)}
@@ -156,7 +156,7 @@
   </div>
   <aside class="panel">
     <div class="ph"><h2>Fiche urbanisme</h2>
-      <div class="actions"><button class="btn-sec" id="png">PNG</button><button class="btn-sec" id="pdf">PDF</button></div>
+      <div class="actions"><button class="btn-sec" id="png">PNG</button><button class="btn-sec" id="pdf">Fiche PDF</button><button class="btn-sec" id="pdfDossier">Fiche + dossier</button></div>
     </div>
     <div id="fiche"><div class="hint">Saisissez une adresse, ou une commune puis section/numéro.</div></div>
   </aside>
@@ -164,6 +164,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 /* ============================================================
    URBA v3 — 100% browser-side
@@ -181,19 +182,23 @@ const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
 
 /* ---- carte ---- */
 const fonds={
-  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
+  cadastre:{nom:"Cadastre",bg:"#ffffff",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}"},
   plan:{nom:"Plan IGN",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"},
   ortho:{nom:"Photo aérienne",bg:"#dfe6ea",url:"https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEMATRIXCOL={x}&TILEMATRIXROW={y}"}
 };
-const ordreFond=["cadastre","plan","ortho"];
+const ordreFond=["plan","cadastre","ortho"];
 const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
+map.createPane("zonesPane"); map.getPane("zonesPane").style.zIndex=405;
+map.createPane("cadPane"); map.getPane("cadPane").style.zIndex=420;
+map.createPane("hlPane"); map.getPane("hlPane").style.zIndex=425;
 function creerFond(k){ return L.tileLayer(fonds[k].url,{maxZoom:19,crossOrigin:true,attribution:"© IGN / Géoplateforme / DGFiP"}); }
-let coucheFond=creerFond("cadastre").addTo(map);
-const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
+let coucheFond=creerFond("plan").addTo(map);
+const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),layerCad=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
-let legendCtrl=null, lastBounds=null, opacityZone=0.3;
+let legendCtrl=null, lastBounds=null, opacityZone=0.6, lastResults=[];
+map.getPane("zonesPane").style.opacity=opacityZone;
 const fondBtn=L.control({position:"topright"});
-fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.cadastre.nom;b.style.cursor="pointer";
+fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : "+fonds.plan.nom;b.style.cursor="pointer";
   let i=0;b.onclick=(e)=>{e.stopPropagation(); i=(i+1)%ordreFond.length; const k=ordreFond[i];
     map.removeLayer(coucheFond);
     coucheFond=creerFond(k).addTo(map); coucheFond.bringToBack();
@@ -201,16 +206,14 @@ fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="F
     b.textContent="Fond : "+fonds[k].nom;};
   L.DomEvent.disableClickPropagation(b);return b;};
 fondBtn.addTo(map);
-document.getElementById("map").style.background=fonds.cadastre.bg;
+document.getElementById("map").style.background=fonds.plan.bg;
 const opCtrl=L.control({position:"topright"});
 opCtrl.onAdd=()=>{const d=L.DomUtil.create("div","op-ctrl");
-  d.innerHTML=`<span>Transparence zonage : <b id="opVal">${Math.round(opacityZone*100)}%</b></span><input type="range" min="0" max="0.6" step="0.05" value="${opacityZone}">`;
+  d.innerHTML=`<span>Opacité zonage : <b id="opVal">${Math.round(opacityZone*100)}%</b></span><input type="range" min="0" max="1" step="0.05" value="${opacityZone}">`;
   const r=d.querySelector("input"), lbl=d.querySelector("#opVal");
-  const appliquer=()=>{ opacityZone=parseFloat(r.value); lbl.textContent=Math.round(opacityZone*100)+"%"; layerZones.eachLayer(l=>{ if(l.setStyle) l.setStyle({fillOpacity:opacityZone}); }); };
-  r.addEventListener("input",appliquer);
-  r.addEventListener("change",appliquer);
-  L.DomEvent.disableClickPropagation(d);
-  L.DomEvent.disableScrollPropagation(d);
+  const appliquer=()=>{ opacityZone=parseFloat(r.value); lbl.textContent=Math.round(opacityZone*100)+"%"; map.getPane("zonesPane").style.opacity=opacityZone; };
+  r.addEventListener("input",appliquer); r.addEventListener("change",appliquer);
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   ["mousedown","touchstart","pointerdown"].forEach(ev=>L.DomEvent.on(r,ev,L.DomEvent.stopPropagation));
   return d;};
 opCtrl.addTo(map);
@@ -298,16 +301,16 @@ async function urbaPourParcelle(parcelle){
 }
 
 /* ---- carte : rendu ---- */
-function vider(){ [layerParcelle,layerZones,layerPresc,layerSup,layerLabels].forEach(l=>l.clearLayers()); if(legendCtrl){map.removeControl(legendCtrl);legendCtrl=null;} }
+function vider(){ [layerParcelle,layerZones,layerCad,layerPresc,layerSup,layerLabels].forEach(l=>l.clearLayers()); if(legendCtrl){map.removeControl(legendCtrl);legendCtrl=null;} }
 function centroid(geom){ let xs=0,ys=0,n=0; const w=c=>{ if(typeof c[0]==="number"){xs+=c[0];ys+=c[1];n++;} else c.forEach(w); }; w(geom.coordinates); return [ys/n,xs/n]; }
 
 function dessiner(results){
   vider(); const bounds=[];
   results.forEach(R=>{
-    const pl=L.geoJSON(R.parcelle.geometry,{style:{color:"#0F2238",weight:3,fill:false}}).addTo(layerParcelle);
+    const pl=L.geoJSON(R.parcelle.geometry,{pane:"hlPane",style:{color:"#0F2238",weight:3,fill:false}}).addTo(layerParcelle);
     try{ bounds.push(pl.getBounds()); }catch(e){}
     R.zones.forEach(z=>{ const lib=z.properties.libelle||"—",col=couleurZone(lib);
-      L.geoJSON(z.geometry,{style:{color:col,weight:1.5,fillColor:col,fillOpacity:opacityZone}}).addTo(layerZones);
+      L.geoJSON(z.geometry,{pane:"zonesPane",style:{color:col,weight:1.5,fillColor:col,fillOpacity:0.55}}).addTo(layerZones);
       L.marker(centroid(z.geometry),{icon:L.divIcon({className:"zlabel",html:lib})}).addTo(layerLabels); });
     R.prescSurf.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:2,fillColor:"#FF982D",fillOpacity:.15,dashArray:"5 4"}}).addTo(layerPresc));
     R.prescLin.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:3,dashArray:"5 4"}}).addTo(layerPresc));
@@ -394,14 +397,28 @@ function ficheParcelle(R){
 
 function disclaimer(){ return `<div class="hint">Source : Géoportail de l'Urbanisme via API Carto (IGN). Donnée indicative — ne fait pas foi de l'opposabilité ; vérifier l'actualité du document auprès de l'autorité compétente.</div>`; }
 
+async function dessinerVoisins(){
+  if(!map || map.getZoom()<15) { layerCad.clearLayers(); return; }
+  const b=map.getBounds(), sw=b.getSouthWest(), ne=b.getNorthEast();
+  const poly={type:"Polygon",coordinates:[[[sw.lng,sw.lat],[ne.lng,sw.lat],[ne.lng,ne.lat],[sw.lng,ne.lat],[sw.lng,sw.lat]]]};
+  try{ const feats=await cadastreParGeom(poly);
+    layerCad.clearLayers();
+    feats.slice(0,600).forEach(f=>L.geoJSON(f.geometry,{pane:"cadPane",style:{color:"#3a3a3a",weight:1.1,fill:false}}).addTo(layerCad));
+  }catch(e){}
+}
+let moveTimer=null;
+map.on("moveend",()=>{ clearTimeout(moveTimer); moveTimer=setTimeout(dessinerVoisins,500); });
+
 async function traiter(parcelles){
   if(!parcelles.length) return;
   document.getElementById("loading").classList.add("on");
   try{
     const results=[]; for(const p of parcelles){ results.push(await urbaPourParcelle(p)); }
+    lastResults=results;
     dessiner(results);
     let h=""; results.forEach(R=>h+=ficheParcelle(R)); h+=disclaimer();
     document.getElementById("fiche").innerHTML=h;
+    setTimeout(dessinerVoisins,400);
   }catch(e){ document.getElementById("fiche").innerHTML=`<div class="err">${e.message}</div>`; }
   finally{ document.getElementById("loading").classList.remove("on"); }
 }
@@ -501,16 +518,48 @@ document.getElementById("goRefs").addEventListener("click",async()=>{
 const printArea=document.createElement("div"); printArea.id="printArea"; document.body.appendChild(printArea);
 async function captureCarte(){
   if(lastBounds){ map.invalidateSize(); try{ map.fitBounds(lastBounds.pad(0.12),{animate:false,maxZoom:18}); }catch(e){} }
-  await new Promise(r=>setTimeout(r,500)); // laisser les tuiles se charger sur le cadrage serré
-  try{ const cv=await html2canvas(document.getElementById("map"),{useCORS:true,backgroundColor:"#ffffff"}); return cv.toDataURL("image/png"); }
+  await dessinerVoisins();
+  await new Promise(r=>setTimeout(r,900)); // laisser tuiles + vecteurs se charger
+  try{ const cv=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:"#ffffff",logging:false,scale:1}); return cv.toDataURL("image/png"); }
   catch(e){ return ""; }
 }
-document.getElementById("pdf").addEventListener("click",async()=>{
-  const img=await captureCarte();
-  const imgTag=img?`<img src="${img}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:0 0 14px"/>`:`<div class="hint">Aperçu du plan indisponible (export image bloqué par le navigateur).</div>`;
-  printArea.innerHTML=`<div style="font-family:Georgia,serif;font-size:20px;color:#0F2238">URBA — Zonage et règles d'urbanisme</div><div style="font-size:12px;color:#657D96;margin:2px 0 12px">Fiche générée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${document.getElementById("fiche").innerHTML}</div>`;
-  window.print();
-  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
+async function genererPdf(){
+  const btn=document.getElementById("pdf"), old=btn.textContent, btn2=document.getElementById("pdfDossier");
+  btn.textContent="…"; btn.disabled=true; btn2.disabled=true;
+  try{
+    const img=await captureCarte();
+    const imgTag=img?`<img src="${img}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:0 0 14px"/>`:`<div style="color:#657D96;font-size:12px;margin-bottom:12px">Aperçu du plan indisponible.</div>`;
+    printArea.style.cssText="position:absolute;left:-10000px;top:0;width:760px;background:#fff;padding:18px;display:block;font-family:'Segoe UI',sans-serif;color:#0F2238";
+    printArea.innerHTML=`<div style="font-family:Georgia,serif;font-size:20px;color:#0F2238">URBA — Zonage et règles d'urbanisme</div><div style="font-size:12px;color:#657D96;margin:2px 0 12px">Fiche générée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${document.getElementById("fiche").innerHTML}</div>`;
+    await new Promise(r=>setTimeout(r,150));
+    const canvas=await html2canvas(printArea,{useCORS:true,backgroundColor:"#ffffff",scale:1.5,logging:false});
+    printArea.style.display="none"; printArea.innerHTML="";
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF("p","mm","a4");
+    const pageW=210,pageH=297, imgW=pageW, imgH=canvas.height*imgW/canvas.width;
+    const data=canvas.toDataURL("image/jpeg",0.92);
+    let heightLeft=imgH, position=0;
+    pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH;
+    while(heightLeft>0){ position-=pageH; pdf.addPage(); pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH; }
+    pdf.save("urba-fiche.pdf");
+  }catch(e){ alert("Échec de génération du PDF : "+e.message); }
+  finally{ btn.textContent=old; btn.disabled=false; btn2.disabled=false;
+    if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
+  }
+}
+function declencherTelechargement(url){ const a=document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener"; document.body.appendChild(a); a.click(); a.remove(); }
+async function telechargerArchive(url,nom){
+  try{ const r=await fetch(url); if(!r.ok) throw 0; const b=await r.blob();
+    const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=nom; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),5000);
+  }catch(e){ declencherTelechargement(url); } // repli : le serveur déclenche le téléchargement
+}
+document.getElementById("pdf").addEventListener("click",genererPdf);
+document.getElementById("pdfDossier").addEventListener("click",async()=>{
+  await genererPdf();
+  const urls=[]; (lastResults||[]).forEach(R=>(R.details||[]).forEach(dt=>{ if(dt.archiveUrl) urls.push(dt.archiveUrl); }));
+  if(urls.length){ for(let i=0;i<urls.length;i++){ await telechargerArchive(urls[i], urls.length>1?`pieces-urbanisme-${i+1}.zip`:"pieces-urbanisme.zip"); } }
+  else if(lastResults && lastResults[0]){ const c=centroid(lastResults[0].parcelle.geometry); window.open(`${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17`,"_blank"); }
 });
 document.getElementById("png").addEventListener("click",async()=>{
   try{ const canvas=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:null});
