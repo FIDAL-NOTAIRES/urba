@@ -520,8 +520,12 @@ async function captureCarte(){
   if(lastBounds){ map.invalidateSize(); try{ map.fitBounds(lastBounds.pad(0.12),{animate:false,maxZoom:18}); }catch(e){} }
   await dessinerVoisins();
   await new Promise(r=>setTimeout(r,900)); // laisser tuiles + vecteurs se charger
-  try{ const cv=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:"#ffffff",logging:false,scale:1}); return cv.toDataURL("image/png"); }
-  catch(e){ return ""; }
+  const cc=document.querySelector(".leaflet-control-container"); if(cc) cc.style.display="none";
+  let out="";
+  try{ const cv=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:"#ffffff",logging:false,scale:1}); out=cv.toDataURL("image/png"); }
+  catch(e){}
+  if(cc) cc.style.display="";
+  return out;
 }
 async function genererPdf(){
   const btn=document.getElementById("pdf"), old=btn.textContent, btn2=document.getElementById("pdfDossier");
@@ -529,8 +533,10 @@ async function genererPdf(){
   try{
     const img=await captureCarte();
     const imgTag=img?`<img src="${img}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:0 0 14px"/>`:`<div style="color:#657D96;font-size:12px;margin-bottom:12px">Aperçu du plan indisponible.</div>`;
+    const ficheClone=document.getElementById("fiche").cloneNode(true);
+    ficheClone.querySelectorAll(".doc-link").forEach(e=>e.remove());
     printArea.style.cssText="position:absolute;left:-10000px;top:0;width:760px;background:#fff;padding:18px;display:block;font-family:'Segoe UI',sans-serif;color:#0F2238";
-    printArea.innerHTML=`<div style="font-family:Georgia,serif;font-size:20px;color:#0F2238">URBA — Zonage et règles d'urbanisme</div><div style="font-size:12px;color:#657D96;margin:2px 0 12px">Fiche générée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${document.getElementById("fiche").innerHTML}</div>`;
+    printArea.innerHTML=`<div style="font-size:12px;color:#657D96;margin:0 0 12px">Fiche urbanisme — éditée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${ficheClone.innerHTML}</div>`;
     await new Promise(r=>setTimeout(r,150));
     const canvas=await html2canvas(printArea,{useCORS:true,backgroundColor:"#ffffff",scale:1.5,logging:false});
     printArea.style.display="none"; printArea.innerHTML="";
