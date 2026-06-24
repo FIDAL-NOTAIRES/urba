@@ -173,7 +173,7 @@ const APICARTO="https://apicarto.ign.fr/api";
 const GPU=APICARTO+"/gpu";
 const BAN="https://api-adresse.data.gouv.fr/search/";
 const GEOAPI="https://geo.api.gouv.fr/communes";
-const GPU_DL="https://www.geoportail-urbanisme.gouv.fr/api/document/download-by-partition/";
+const GPU_INFO="https://www.geoportail-urbanisme.gouv.fr/document/info/?partition=";
 const GPU_MAP="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1";
 
 /* ---- carte ---- */
@@ -185,7 +185,7 @@ const map=L.map("map",{zoomControl:true}).setView([46.6,2.4],6);
 let coucheFond=L.tileLayer(fonds.plan.url,{maxZoom:19,attribution:"© IGN / Géoplateforme",crossOrigin:true}).addTo(map);
 const layerParcelle=L.layerGroup().addTo(map),layerZones=L.layerGroup().addTo(map),
       layerPresc=L.layerGroup().addTo(map),layerSup=L.layerGroup().addTo(map),layerLabels=L.layerGroup().addTo(map);
-let legendCtrl=null;
+let legendCtrl=null, lastBounds=null;
 const fondBtn=L.control({position:"topright"});
 fondBtn.onAdd=()=>{const b=L.DomUtil.create("button","btn-sec");b.textContent="Fond : Plan IGN";b.style.cursor="pointer";
   let cur="plan";b.onclick=(e)=>{e.stopPropagation();cur=cur==="plan"?"ortho":"plan";map.removeLayer(coucheFond);
@@ -286,7 +286,7 @@ function dessiner(results){
     R.prescLin.forEach(p=>L.geoJSON(p.geometry,{style:{color:"#FF982D",weight:3,dashArray:"5 4"}}).addTo(layerPresc));
     R.supS.forEach(s=>L.geoJSON(s.geometry,{style:{color:"#b3261e",weight:2,fillColor:"#b3261e",fillOpacity:.12,dashArray:"2 3"}}).addTo(layerSup));
   });
-  if(bounds.length){ let b=bounds[0]; bounds.slice(1).forEach(x=>b=b.extend(x)); try{ map.fitBounds(b.pad(0.6),{maxZoom:18}); }catch(e){} }
+  if(bounds.length){ let b=bounds[0]; bounds.slice(1).forEach(x=>b=b.extend(x)); lastBounds=b; try{ map.fitBounds(b.pad(0.6),{maxZoom:18}); }catch(e){} }
   const libs=[...new Set(results.flatMap(R=>R.zones.map(z=>z.properties.libelle||"—")))];
   const anyP=results.some(R=>R.prescSurf.length||R.prescLin.length), anyS=results.some(R=>R.supS.length);
   legendCtrl=L.control({position:"bottomleft"});
@@ -329,12 +329,17 @@ function ficheParcelle(R){
   else h+=`<div class="empty">Aucune zone.</div>`;
   h+=`</div>`;
 
-  const presc=[...R.prescSurf,...R.prescLin,...R.prescPct];
-  h+=`<div class="section"><h3>Prescriptions (${presc.length})</h3>`;
-  if(presc.length) presc.forEach(p=>{const q=p.properties;
-    h+=`<div class="kv" style="margin:5px 0"><b>${q.txt||q.typepsc||"Prescription"} :</b> ${q.libelle||""}`;
-    if(q.urlfic) h+=` <a href="${q.urlfic}" target="_blank" rel="noopener">📄</a>`; h+=`</div>`; });
-  else h+=`<div class="empty">Aucune.</div>`;
+  const regles=[...R.prescSurf,...R.prescLin,...R.prescPct,...R.infoSurf,...R.infoLin,...R.infoPct];
+  h+=`<div class="section"><h3>Règles et informations détaillées (${regles.length})</h3>`;
+  if(regles.length) regles.forEach(p=>{const q=p.properties;
+    const bits=[q.libelle,q.txt].map(x=>x==null?"":(""+x).trim()).filter(x=>x).filter((v,i,a)=>a.indexOf(v)===i);
+    let line;
+    if(bits.length>=2) line=`<b>${bits[0]}</b> : ${bits.slice(1).join(" — ")}`;
+    else line=`<b>${bits[0]||q.typepsc||q.typeinf||"Règle"}</b>`;
+    h+=`<div class="kv" style="margin:7px 0">${line}`;
+    if(q.urlfic) h+=` <a href="${q.urlfic}" target="_blank" rel="noopener">📄</a>`;
+    h+=`</div>`; });
+  else h+=`<div class="empty">Aucune règle ou information particulière sur l'emprise.</div>`;
   h+=`</div>`;
 
   const sup=[...R.supS,...R.supL,...R.supP];
@@ -343,28 +348,26 @@ function ficheParcelle(R){
   else h+=`<div class="empty">Aucune.</div>`;
   h+=`</div>`;
 
-  const infos=[...R.infoSurf,...R.infoLin,...R.infoPct];
-  if(infos.length){ h+=`<div class="section"><h3>Périmètres d'information (${infos.length})</h3>`;
-    infos.forEach(i=>{const q=i.properties; h+=`<div class="kv" style="margin:5px 0"><b>${q.txt||q.typeinf||"Info"} :</b> ${q.libelle||""}</div>`; }); h+=`</div>`; }
   h+=`</div>`;
   return h;
 }
 
 function ficheDocumentation(results){
-  const docs={}, reglements=new Set(), actes=new Set();
+  const parts={}, reglements=new Set(), actes=new Set();
+  const ajoutPart=(p,meta)=>{ if(!p) return; if(!parts[p]) parts[p]={type:"",name:""}; if(meta){ if(meta.type) parts[p].type=parts[p].type||meta.type; if(meta.name) parts[p].name=parts[p].name||meta.name; } };
   results.forEach(R=>{
-    R.documents.forEach(d=>{const dp=d.properties; if(dp.partition) docs[dp.partition]={type:dp.du_type,name:dp.name,partition:dp.partition};});
-    R.zones.forEach(z=>{ if(z.properties.urlfic) reglements.add(JSON.stringify({u:z.properties.urlfic,t:"Règlement zone "+(z.properties.libelle||"")})); });
-    [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ if(p.properties.urlfic) reglements.add(JSON.stringify({u:p.properties.urlfic,t:"Prescription "+(p.properties.txt||"")})); });
+    R.documents.forEach(d=>{const dp=d.properties; ajoutPart(dp.partition,{type:dp.du_type,name:dp.name});});
+    R.zones.forEach(z=>{ ajoutPart(z.properties.partition); if(z.properties.urlfic) reglements.add(JSON.stringify({u:z.properties.urlfic,t:"Règlement zone "+(z.properties.libelle||"")})); });
+    [...R.prescSurf,...R.prescLin,...R.prescPct].forEach(p=>{ ajoutPart(p.properties.partition); if(p.properties.urlfic) reglements.add(JSON.stringify({u:p.properties.urlfic,t:"Prescription "+(p.properties.txt||"")})); });
     R.acteSup.forEach(a=>{const q=a.properties; if(q.reference||q.nomacte) actes.add(JSON.stringify({t:(q.suptype?("["+q.suptype+"] "):"")+(q.nomacte||q.reference||"Acte SUP"),r:q.reference||""})); });
   });
   let h=`<div class="section"><h3>📚 Documentation d'urbanisme</h3>`;
-  const dlist=Object.values(docs);
-  if(dlist.length){ const c=centroid(results[0].parcelle.geometry);
-    dlist.forEach(d=>{
-      h+=`<a class="doc-link full" href="${GPU_DL}${encodeURIComponent(d.partition)}" target="_blank" rel="noopener"><b>⬇ Archive complète — ${d.type||"DU"}</b><br/>${d.name||d.partition} <span style="color:#888">(règlement intégral, OAP, annexes, plans — format CNIG)</span></a>`;
-      h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
+  const plist=Object.keys(parts);
+  if(plist.length){ const c=centroid(results[0].parcelle.geometry);
+    plist.forEach(p=>{ const m=parts[p];
+      h+=`<a class="doc-link full" href="${GPU_INFO}${encodeURIComponent(p)}" target="_blank" rel="noopener"><b>📥 Télécharger l'ensemble des pièces écrites</b><br/>${m.type||"Document d'urbanisme"}${m.name?(" — "+m.name):""} <span style="color:#888">(règlement, OAP, annexes, plans)</span></a>`;
     });
+    h+=`<a class="doc-link" href="${GPU_MAP}&lon=${c[1]}&lat=${c[0]}&zoom=17" target="_blank" rel="noopener">🌐 Consulter sur le Géoportail de l'Urbanisme</a>`;
   } else h+=`<div class="empty">Aucun document GPU à télécharger pour cette/ces parcelle(s).</div>`;
   if(reglements.size){ h+=`<div style="margin-top:10px"><b style="font-size:12px;color:var(--gris)">PIÈCES CIBLÉES</b></div>`;
     [...reglements].map(s=>JSON.parse(s)).forEach(o=>h+=`<a class="doc-link" href="${o.u}" target="_blank" rel="noopener">📄 ${o.t}</a>`); }
@@ -478,7 +481,21 @@ document.getElementById("goRefs").addEventListener("click",async()=>{
 });
 
 /* ===================== EXPORTS ===================== */
-document.getElementById("pdf").addEventListener("click",()=>window.print());
+function preparerImpression(){
+  const m=document.getElementById("map"); m.style.height="480px"; map.invalidateSize();
+  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.15),{animate:false,maxZoom:18}); }catch(e){} }
+}
+function restaurerCarte(){
+  const m=document.getElementById("map"); m.style.height=""; map.invalidateSize();
+  if(lastBounds){ try{ map.fitBounds(lastBounds.pad(0.6),{animate:false,maxZoom:18}); }catch(e){} }
+}
+window.addEventListener("beforeprint",preparerImpression);
+window.addEventListener("afterprint",restaurerCarte);
+document.getElementById("pdf").addEventListener("click",async()=>{
+  preparerImpression();
+  await new Promise(r=>setTimeout(r,700)); // laisser les tuiles recharger sur le nouveau cadrage
+  window.print();
+});
 document.getElementById("png").addEventListener("click",async()=>{
   try{ const canvas=await html2canvas(document.getElementById("map"),{useCORS:true,allowTaint:false,backgroundColor:null});
     const a=document.createElement("a"); a.download="urba-zonage.png"; a.href=canvas.toDataURL("image/png"); a.click();
