@@ -170,7 +170,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://unpkg.com/docx@9.7.1/build/index.umd.js"></script>
+<script src="https://unpkg.com/docx@9.7.1/dist/index.umd.cjs"></script>
 <script>
 /* ============================================================
    URBA v3 — 100% browser-side
@@ -597,7 +597,7 @@ document.getElementById("word").addEventListener("click",async()=>{
     kids.push(new D.Paragraph({children:[new D.TextRun({text:`Fiche urbanisme — éditée le ${new Date().toLocaleDateString("fr-FR")}`,color:"657D96",size:18})]}));
     if(img){ try{ const dim=await new Promise(res=>{const im=new Image();im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight});im.onerror=()=>res(null);im.src=img;});
       if(dim){ const W=560,H=Math.round(W*dim.h/dim.w);
-        kids.push(new D.Paragraph({spacing:{after:160},children:[new D.ImageRun({data:dataUrlToBytes(img),transformation:{width:W,height:H}})]})); } }catch(e){} }
+        kids.push(new D.Paragraph({spacing:{after:160},children:[new D.ImageRun({type:"png",data:dataUrlToBytes(img),transformation:{width:W,height:H}})]})); } }catch(e){} }
     fiche.querySelectorAll(".pblock").forEach(pb=>{
       const head=pb.querySelector(".pcard-head");
       if(head) kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_1,spacing:{before:200,after:80},children:[new D.TextRun({text:txtClean(head.textContent),bold:true,color:"0F2238",size:28})]}));
