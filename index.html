@@ -290,14 +290,24 @@ async function commune(insee){ try{ const fc=await jget(`${GPU}/municipality?ins
 
 async function urbaPourParcelle(parcelle){
   const geom=parcelle.geometry, insee=parcelle.properties.code_insee;
-  const [info,documents,zones,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct]=await Promise.all([
+  const [info,documents,zonesUrba,secteurCC,prescSurf,prescLin,prescPct,supS,supL,supP,acteSup,infoSurf,infoLin,infoPct]=await Promise.all([
     commune(insee),
-    interroger("document",geom),interroger("zone-urba",geom),
+    interroger("document",geom),interroger("zone-urba",geom),interroger("secteur-cc",geom),
     interroger("prescription-surf",geom),interroger("prescription-lin",geom),interroger("prescription-pct",geom),
     interroger("assiette-sup-s",geom),interroger("assiette-sup-l",geom),interroger("assiette-sup-p",geom),
     interroger("acte-sup",geom),
     interroger("info-surf",geom),interroger("info-lin",geom),interroger("info-pct",geom)
   ]);
+  /* Carte communale : le GPU range les zonages dans la couche "secteur-cc"
+     (et non "zone-urba"). On normalise chaque secteur pour qu'il s'affiche
+     comme une zone classique (carte + fiche + légende). Pour un PLU/POS,
+     secteur-cc renvoie vide -> aucun effet de bord. */
+  const secteursNorm=(secteurCC||[]).map(f=>{ const p=f.properties||{};
+    return {...f, properties:{...p,
+      libelle:p.libelle||p.libelong||p.typesect||"Secteur",
+      libelong:p.libelong||"Secteur de carte communale",
+      typezone:p.typezone||"Carte communale"}}; });
+  const zones=[...(zonesUrba||[]),...secteursNorm];
   const details=[];
   for(const d of documents){ const id=d.properties.id||d.properties.gpu_doc_id;
     if(id){ try{ const dd=await jget(`https://www.geoportail-urbanisme.gouv.fr/api/document/${id}/details`);
