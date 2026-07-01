@@ -104,6 +104,29 @@
   .op-ctrl{background:rgba(255,255,255,.95);padding:6px 9px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.2);font-size:11px;color:#0F2238;display:flex;flex-direction:column;gap:3px}
   .op-ctrl input{width:130px;cursor:pointer}
   @media print{ body{background:#fff;margin:0} body>header,body>.entry,body>.main{display:none!important} #printArea{display:block!important;padding:16px;font-family:"Segoe UI",sans-serif} #printArea .section{break-inside:avoid} }
+
+  /* --- entrée 3 : document --- */
+  .card.doc{border-left:4px solid var(--cyan);background:#f1fbfc}
+  .card.doc .card-t{color:#1c6b73}
+  .dropzone{flex:1;min-height:96px;border:2px dashed #b9d9dd;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:14px;transition:.15s;margin-top:4px}
+  .dropzone:hover,.dropzone.over{border-color:var(--canard);background:#f2f8f9}
+  .dropzone.busy{opacity:.7;cursor:progress;border-color:var(--canard)}
+  .dz-inner{font-size:13px;color:var(--gris);line-height:1.5}
+  .dz-inner span{font-size:11px;color:#9aa9b5}
+  .dz-status{font-size:12px;margin-top:8px;min-height:16px;color:var(--gris);line-height:1.4}
+  .dz-status.ok{color:var(--vert)}.dz-status.ko{color:var(--rouge)}
+  .review{padding:14px 16px}
+  .review h3{font-size:14px;color:var(--canard);margin-bottom:6px;font-family:Georgia,serif}
+  .rv-commune{margin:6px 0 12px}
+  .rv-commune .commune-wrap input{width:100%}
+  .rv-row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+  .rv-row .rc{flex:1 1 auto;min-width:70px}
+  .rv-row .rs{width:62px;text-transform:uppercase}
+  .rv-row .rn{width:62px}
+  .rv-row .rm{background:#fdeceb;color:var(--rouge);padding:7px 10px;flex:none;font-size:12px}
+  .rv-row input{font-size:13px;padding:7px 8px}
+  .rv-head{display:flex;gap:6px;font-size:10px;color:var(--gris);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+  .rv-head .hc{flex:1 1 auto;min-width:70px}.rv-head .hs{width:62px}.rv-head .hn{width:62px}.rv-head .hx{width:34px}
 </style>
 </head>
 <body>
@@ -151,6 +174,17 @@
       <div class="go-row"><button class="btn-go" id="goRefs">Voir l'urbanisme</button></div>
     </div>
 
+    <!-- DOCUMENT -->
+    <div class="card doc">
+      <div class="card-t"><span class="num">3</span> Par document</div>
+      <label>Relevé de propriété (M1), PDF ou image — extraction automatique</label>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".pdf,image/*" multiple hidden/>
+        <div class="dz-inner">📄 Glissez un document ici, ou cliquez pour choisir<br><span>PDF ou image · traitement 100 % local (RGPD)</span></div>
+      </div>
+      <div class="dz-status" id="dzStatus"></div>
+    </div>
+
   </div>
 </div>
 
@@ -171,6 +205,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://unpkg.com/docx@9.7.1/dist/index.umd.cjs"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 /* ============================================================
    URBA v3 — 100% browser-side
@@ -530,6 +566,180 @@ document.getElementById("goRefs").addEventListener("click",async()=>{
   }catch(e){ document.getElementById("loading").classList.remove("on"); erreur(e.message); }
 });
 
+/* ===================== ENTRÉE 3 : DOCUMENT (100% navigateur) ===================== */
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const MAX_OCR_PAGES=20;
+const dz=document.getElementById("dropzone"), fileInput=document.getElementById("fileInput"), dzStatus=document.getElementById("dzStatus");
+function dzMsg(t,cls){ dzStatus.className="dz-status"+(cls?(" "+cls):""); dzStatus.innerHTML=t; }
+
+["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.remove("over");}));
+dz.addEventListener("drop",e=>{ const fs=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(fs.length) ingestFiles(fs); });
+dz.addEventListener("click",()=>fileInput.click());
+fileInput.addEventListener("change",()=>{ const fs=[...fileInput.files]; if(fs.length) ingestFiles(fs); fileInput.value=""; });
+
+const OCR_ANGLES=[0,90,180,270];
+function rotateCanvas(src,deg){ if(!deg) return src;
+  const r=deg*Math.PI/180, s=Math.abs(Math.sin(r)), c=Math.abs(Math.cos(r)), w=src.width, h=src.height;
+  const nw=Math.round(w*c+h*s), nh=Math.round(w*s+h*c);
+  const out=document.createElement("canvas"); out.width=nw; out.height=nh;
+  const ctx=out.getContext("2d"); ctx.translate(nw/2,nh/2); ctx.rotate(r); ctx.drawImage(src,-w/2,-h/2); return out; }
+async function toCanvas(file){
+  const url=URL.createObjectURL(file);
+  try{ const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("Image illisible.")); i.src=url; });
+    const cv=document.createElement("canvas"); cv.width=img.naturalWidth||img.width; cv.height=img.naturalHeight||img.height;
+    cv.getContext("2d").drawImage(img,0,0); return cv;
+  } finally{ URL.revokeObjectURL(url); } }
+async function ocrOnce(canvas){ if(!window.Tesseract) throw new Error("Moteur OCR indisponible (Tesseract non chargé)."); const {data}=await Tesseract.recognize(canvas,"fra"); return {text:data.text||"",conf:data.confidence||0}; }
+async function ocrMultiAngle(canvas,label){ // teste 0/90/180/270, garde la meilleure confiance
+  let best={text:"",conf:-1,deg:0};
+  for(const deg of OCR_ANGLES){ dzMsg(`${label} — orientation ${deg}°…`); const r=await ocrOnce(rotateCanvas(canvas,deg)); if(r.conf>best.conf) best={text:r.text,conf:r.conf,deg}; }
+  return best; }
+async function ocrImage(file){ const cv=await toCanvas(file); const b=await ocrMultiAngle(cv,`Image « ${file.name} »`);
+  dzMsg(`Image « ${file.name} » — orientation retenue ${b.deg}° (confiance ${Math.round(b.conf)} %).`); return b.text; }
+
+async function pdfEnTexte(file){
+  if(!window.pdfjsLib) throw new Error("Lecteur PDF indisponible.");
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let texte="";
+  for(let i=1;i<=pdf.numPages;i++){ const page=await pdf.getPage(i); const tc=await page.getTextContent(); texte+=" "+tc.items.map(it=>it.str).join(" "); }
+  if(texte.replace(/\s/g,"").length<40){ // PDF scanné -> OCR ; orientation détectée sur la 1re page, réappliquée
+    const n=Math.min(pdf.numPages,MAX_OCR_PAGES); texte=""; let deg=null;
+    for(let i=1;i<=n;i++){ const page=await pdf.getPage(i); const vp=page.getViewport({scale:2});
+      const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+      await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+      if(deg===null){ const b=await ocrMultiAngle(cv,`PDF scanné — page ${i}/${n}`); deg=b.deg; texte+=" "+b.text; }
+      else { dzMsg(`PDF scanné — OCR page ${i}/${n} (${deg}°)…`); texte+=" "+(await ocrOnce(rotateCanvas(cv,deg))).text; } }
+    if(pdf.numPages>MAX_OCR_PAGES) dzMsg(`OCR limité aux ${MAX_OCR_PAGES} premières pages.`,"ko");
+  }
+  return texte;
+}
+async function fichierEnTexte(file){
+  const estPdf=/pdf$/i.test(file.type||"")||/\.pdf$/i.test(file.name);
+  if(estPdf) return await pdfEnTexte(file);
+  dzMsg(`OCR de l'image « ${file.name} »…`); return await ocrImage(file);
+}
+
+/* --- extraction des références cadastrales (best-effort) --- */
+const STOP=new Set(["LE","LA","LES","DE","DU","DES","ET","EN","AU","RUE","BIS","TER","M2","M3","KM","HA","CA","NO","NB","TVA","TTC","HT","ID","REF","SIRET","RCS","CP"]);
+function extraireRefs(texte){
+  const U=" "+texte.toUpperCase().replace(/\u00A0/g," ").replace(/[ \t]+/g," ")+" ";
+  let commune="";
+  let m=U.match(/COMMUNE\s*(?:DE\s+|D['’]\s*)?[:\-]?\s*([A-ZÀ-Ÿ][A-ZÀ-Ÿ'’\-\. ]{2,40}?)(?=\s{2,}|\s+\d|\s+INSEE|\s+SECTION|$)/);
+  if(m) commune=m[1].trim().replace(/\s+/g," ");
+  const found=[], seen=new Set();
+  const pushRef=(s,n)=>{ s=(s||"").replace(/\s/g,"").toUpperCase(); n=(n||"").replace(/^0+(?=\d)/,""); if(!s||!n) return;
+    const k=s+"-"+n; if(seen.has(k)) return; seen.add(k); found.push({section:s,numero:n}); };
+  // 1) motif explicite : "SECTION <S> N° <N>"
+  let re=/SECTION\s*[:\-]?\s*([0-9]{0,2}\s?[A-Z]{1,2})\s*(?:N[°ºO]\s*|PARCELLE\s*|NUM[ÉE]RO\s*)?(\d{1,4})\b/g, r;
+  while((r=re.exec(U))) pushRef(r[1],r[2]);
+  // 2) motif tableau compact : "<préfixe?><section> <numéro>"
+  let re2=/(?:^|\s)([0-9]{0,2}[A-Z]{1,2})\s+(\d{1,4})(?=\s)/g;
+  while((r=re2.exec(U))){ const s=r[1].toUpperCase(); if(STOP.has(s)) continue; pushRef(s,r[2]); }
+  return {commune,parcels:found};
+}
+
+/* --- autocomplete commune réutilisable (réutilise chercherCommunes) --- */
+function brancherAutocompleteCommune(inp,suggEl,statusEl){
+  let deb=null; inp._sel=null;
+  const maj=()=>{ if(!statusEl) return;
+    if(inp._sel){ statusEl.className="cstatus ok"; statusEl.textContent="✓ "+inp._sel.nom+" — INSEE "+inp._sel.insee; }
+    else if(inp.value.trim().length>=2){ statusEl.className="cstatus ko"; statusEl.textContent="Choisissez une commune dans la liste (ou laissez : résolution auto au lancement)."; }
+    else { statusEl.className="cstatus"; statusEl.textContent=""; } };
+  inp.addEventListener("input",()=>{ inp._sel=null; maj(); clearTimeout(deb);
+    const q=inp.value.trim(); if(q.length<2){ suggEl.classList.remove("on"); return; }
+    deb=setTimeout(async()=>{ try{ const list=await chercherCommunes(q);
+      suggEl.innerHTML=list.map((c,i)=>`<div data-i="${i}">${c.nom} <span style="color:#888">(${c.insee})</span></div>`).join("");
+      suggEl._list=list; suggEl.classList.toggle("on",list.length>0);
+    }catch(e){ suggEl.classList.remove("on"); } },250); });
+  suggEl.addEventListener("click",e=>{ const d=e.target.closest("div[data-i]"); if(!d) return;
+    inp._sel=suggEl._list[+d.dataset.i]; inp.value=inp._sel.nom; suggEl.classList.remove("on"); maj(); });
+  document.addEventListener("click",e=>{ if(!e.target.closest(".commune-wrap")) suggEl.classList.remove("on"); });
+}
+
+/* --- résolution commune -> INSEE (cache) --- */
+const inseeCache={};
+function normNom(s){ return (s||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim(); }
+async function resoudreCommune(str){
+  str=(str||"").trim(); if(!str) return null;
+  if(str in inseeCache) return inseeCache[str];
+  let c=null; try{ const list=await chercherCommunes(str);
+    if(/^\d{5}$/.test(str)) c=list[0]||null;
+    else c=list.find(x=>normNom(x.nom)===normNom(str))||list[0]||null;
+  }catch(e){ c=null; }
+  inseeCache[str]=c; return c;
+}
+
+/* --- revue éditable --- */
+function rvErrShow(msg){ const e=document.getElementById("rvErr"); if(e){ e.style.display="block"; e.textContent=msg; } else erreur(msg); }
+function afficherRevue(commune,parcels){
+  const esc=s=>(s||"").replace(/"/g,"&quot;");
+  let h=`<div class="review"><h3>Parcelles détectées (${parcels.length})</h3>`;
+  h+=`<div class="hint" style="padding:0 0 8px">Vérifiez et corrigez si besoin — tout reste sur votre poste. La <b>commune par défaut</b> s'applique aux lignes sans commune.</div>`;
+  h+=`<div class="rv-commune"><label>Commune par défaut</label>
+      <div class="commune-wrap" style="margin:0">
+        <input id="rvCommune" placeholder="Commune ou code postal" autocomplete="off" value="${esc(commune)}"/>
+        <div class="sugg" id="rvSugg"></div><span class="cstatus" id="rvStatus"></span>
+      </div></div>`;
+  h+=`<div class="rv-head"><span class="hc">Commune (option)</span><span class="hs">Sect.</span><span class="hn">N°</span><span class="hx"></span></div>`;
+  h+=`<div id="rvRows"></div>`;
+  h+=`<div class="row-actions"><button class="btn-sec" id="rvAdd">+ Ajouter une ligne</button></div>`;
+  h+=`<div class="err" id="rvErr" style="display:none;margin-top:8px;padding:8px 10px;border-radius:8px"></div>`;
+  h+=`<div class="go-row"><button class="btn-go" id="rvGo">Lancer l'analyse groupée par commune</button></div>`;
+  h+=`</div>`;
+  document.getElementById("fiche").innerHTML=h;
+  const rvRows=document.getElementById("rvRows");
+  const addRow=(s="",n="",c="")=>{ const row=document.createElement("div"); row.className="rv-row";
+    row.innerHTML=`<input class="rc" placeholder="" value="${esc(c)}"/><input class="rs" value="${esc(s)}"/><input class="rn" value="${esc(n)}"/><button class="rm" title="Retirer">✕</button>`;
+    row.querySelector(".rm").addEventListener("click",()=>row.remove()); rvRows.appendChild(row); };
+  if(parcels.length) parcels.forEach(p=>addRow(p.section,p.numero,p.commune||"")); else { addRow(); addRow(); }
+  document.getElementById("rvAdd").addEventListener("click",()=>addRow());
+  brancherAutocompleteCommune(document.getElementById("rvCommune"),document.getElementById("rvSugg"),document.getElementById("rvStatus"));
+  document.getElementById("rvGo").addEventListener("click",lancerDepuisRevue);
+}
+
+async function lancerDepuisRevue(){
+  const defInp=document.getElementById("rvCommune");
+  const defStr=defInp._sel?defInp._sel.nom:defInp.value.trim();
+  const items=[...document.querySelectorAll("#rvRows .rv-row")].map(r=>({
+    commune:(r.querySelector(".rc").value.trim()||defStr),
+    section:r.querySelector(".rs").value.trim(),
+    numero:r.querySelector(".rn").value.trim()
+  })).filter(x=>x.section&&x.numero);
+  if(!items.length) return rvErrShow("Renseignez au moins une section et un numéro.");
+  if(items.some(x=>!x.commune)) return rvErrShow("Renseignez la commune (par défaut, ou ligne par ligne).");
+  document.getElementById("loading").classList.add("on");
+  try{
+    const distinct=[...new Set(items.map(x=>x.commune))], map={};
+    for(const s of distinct){ map[s]=await resoudreCommune(s); }
+    if(distinct.every(s=>!map[s])){ throw new Error("Commune(s) introuvable(s) : "+distinct.join(", ")); }
+    items.sort((a,b)=>{ const A=(map[a.commune]&&map[a.commune].nom)||a.commune, B=(map[b.commune]&&map[b.commune].nom)||b.commune; return A>B?1:A<B?-1:0; });
+    const parcelles=[], echecs=[];
+    for(const x of items){ const c=map[x.commune];
+      if(!c){ echecs.push(`${x.commune} ${x.section} ${x.numero}`); continue; }
+      try{ parcelles.push(await parcelleParRef(c.insee,x.section,x.numero)); }
+      catch(e){ echecs.push(`${c.nom} ${x.section} ${x.numero}`); } }
+    document.getElementById("loading").classList.remove("on");
+    if(!parcelles.length) throw new Error("Aucune parcelle trouvée. Vérifiez les références.");
+    await traiter(parcelles);
+    if(echecs.length) document.getElementById("fiche").insertAdjacentHTML("afterbegin",`<div class="err">Non trouvées (${echecs.length}) : ${echecs.join(" · ")}</div>`);
+  }catch(e){ document.getElementById("loading").classList.remove("on"); rvErrShow(e.message); }
+}
+
+async function ingestFiles(files){
+  dz.classList.add("busy");
+  try{
+    let texte="";
+    for(const f of files){ dzMsg(`Lecture de « ${f.name} »…`); texte+=" "+await fichierEnTexte(f); }
+    const {commune,parcels}=extraireRefs(texte);
+    if(!parcels.length) dzMsg("Aucune référence détectée automatiquement — saisissez-les dans le panneau de droite.","ko");
+    else dzMsg(`${parcels.length} parcelle(s) détectée(s)${commune?` — commune : ${commune}`:""}. Vérifiez à droite, puis lancez.`,"ok");
+    afficherRevue(commune,parcels);
+  }catch(e){ dzMsg("Erreur : "+e.message,"ko"); }
+  finally{ dz.classList.remove("busy"); }
+}
+
 /* ===================== EXPORTS ===================== */
 const printArea=document.createElement("div"); printArea.id="printArea"; document.body.appendChild(printArea);
 async function captureCarte(){
@@ -549,20 +759,37 @@ async function genererPdf(){
   try{
     const img=await captureCarte();
     const imgTag=img?`<img src="${img}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:0 0 14px"/>`:`<div style="color:#657D96;font-size:12px;margin-bottom:12px">Aperçu du plan indisponible.</div>`;
-    const ficheClone=document.getElementById("fiche").cloneNode(true);
-    ficheClone.querySelectorAll(".doc-link").forEach(e=>e.remove());
-    printArea.style.cssText="position:absolute;left:-10000px;top:0;width:760px;background:#fff;padding:18px;display:block;font-family:'Segoe UI',sans-serif;color:#0F2238";
-    printArea.innerHTML=`<div style="font-size:12px;color:#657D96;margin:0 0 12px">Fiche urbanisme — éditée le ${new Date().toLocaleDateString("fr-FR")}</div>${imgTag}<div>${ficheClone.innerHTML}</div>`;
-    await new Promise(r=>setTimeout(r,150));
-    const canvas=await html2canvas(printArea,{useCORS:true,backgroundColor:"#ffffff",scale:1.5,logging:false});
-    printArea.style.display="none"; printArea.innerHTML="";
+    const dateLine=`<div style="font-size:12px;color:#657D96;margin:0 0 12px">Fiche urbanisme — éditée le ${new Date().toLocaleDateString("fr-FR")}</div>`;
+    const fiche=document.getElementById("fiche");
+    const blocks=[...fiche.querySelectorAll(".pblock")];
     const {jsPDF}=window.jspdf;
-    const pdf=new jsPDF("p","mm","a4");
-    const pageW=210,pageH=297, imgW=pageW, imgH=canvas.height*imgW/canvas.width;
-    const data=canvas.toDataURL("image/jpeg",0.92);
-    let heightLeft=imgH, position=0;
-    pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH;
-    while(heightLeft>0){ position-=pageH; pdf.addPage(); pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH; }
+    const pdf=new jsPDF("p","mm","a4"); const pageW=210,pageH=297;
+    let premier=true;
+    const PA_CSS="position:absolute;left:-10000px;top:0;width:760px;background:#fff;padding:18px;display:block;font-family:'Segoe UI',sans-serif;color:#0F2238";
+    async function rendre(html){
+      printArea.style.cssText=PA_CSS; printArea.innerHTML=html;
+      await new Promise(r=>setTimeout(r,150));
+      const canvas=await html2canvas(printArea,{useCORS:true,backgroundColor:"#ffffff",scale:1.5,logging:false});
+      printArea.style.display="none"; printArea.innerHTML=""; return canvas;
+    }
+    function ajouter(canvas){ // chaque appel démarre sur une nouvelle page (sauf le 1er) ; découpe si > 1 page
+      const imgW=pageW, imgH=canvas.height*imgW/canvas.width, data=canvas.toDataURL("image/jpeg",0.92);
+      if(!premier) pdf.addPage(); premier=false;
+      let heightLeft=imgH, position=0;
+      pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH;
+      while(heightLeft>0){ position-=pageH; pdf.addPage(); pdf.addImage(data,"JPEG",0,position,imgW,imgH); heightLeft-=pageH; }
+    }
+    if(blocks.length<=1){ // 1 seule parcelle (ou état particulier) : rendu continu, comme avant
+      const clone=fiche.cloneNode(true); clone.querySelectorAll(".doc-link").forEach(e=>e.remove());
+      ajouter(await rendre(`${dateLine}${imgTag}<div>${clone.innerHTML}</div>`));
+    } else { // plusieurs parcelles : une parcelle par page (carte + en-tête sur la 1re)
+      for(let i=0;i<blocks.length;i++){
+        const b=blocks[i].cloneNode(true); b.querySelectorAll(".doc-link").forEach(e=>e.remove());
+        let html=(i===0)?`${dateLine}${imgTag}${b.outerHTML}`:`${dateLine}${b.outerHTML}`;
+        if(i===blocks.length-1) html+=disclaimer();
+        ajouter(await rendre(html));
+      }
+    }
     pdf.save("urba-fiche.pdf");
   }catch(e){ alert("Échec de génération du PDF : "+e.message); }
   finally{ btn.textContent=old; btn.disabled=false; btn2.disabled=false;
@@ -608,9 +835,10 @@ document.getElementById("word").addEventListener("click",async()=>{
     if(img){ try{ const dim=await new Promise(res=>{const im=new Image();im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight});im.onerror=()=>res(null);im.src=img;});
       if(dim){ const W=560,H=Math.round(W*dim.h/dim.w);
         kids.push(new D.Paragraph({spacing:{after:160},children:[new D.ImageRun({type:"png",data:dataUrlToBytes(img),transformation:{width:W,height:H}})]})); } }catch(e){} }
-    fiche.querySelectorAll(".pblock").forEach(pb=>{
+    fiche.querySelectorAll(".pblock").forEach((pb,idx)=>{
       const head=pb.querySelector(".pcard-head");
-      if(head) kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_1,spacing:{before:200,after:80},children:[new D.TextRun({text:txtClean(head.textContent),bold:true,color:"0F2238",size:28})]}));
+      if(idx>0 && !head) kids.push(new D.Paragraph({children:[new D.PageBreak()]})); // saut de page entre parcelles (sécurité si pas de titre)
+      if(head) kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_1,pageBreakBefore:idx>0,spacing:{before:200,after:80},children:[new D.TextRun({text:txtClean(head.textContent),bold:true,color:"0F2238",size:28})]}));
       pb.querySelectorAll(".section").forEach(sec=>{
         Array.from(sec.children).forEach(ch=>{
           if(ch.tagName==="H3"){ kids.push(new D.Paragraph({heading:D.HeadingLevel.HEADING_2,spacing:{before:160,after:50},children:[new D.TextRun({text:txtClean(ch.textContent),bold:true,color:"33838B",size:22})]})); }
