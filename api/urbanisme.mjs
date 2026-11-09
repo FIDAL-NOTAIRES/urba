@@ -103,4 +103,44 @@ async function traiterParcelle(code) {
 
   return {
     statut: 'ok',
-    commune: propre(p.nom_com ||
+    commune: propre(p.nom_com || (info && info.name)),
+    rnu: !!(info && info.is_rnu),
+    documents: documents.map((f) => {
+      const d = f.properties || {};
+      return { type: propre(d.du_type), nom: propre(d.name || d.partition), approuve_le: dateFr(d.datappro) };
+    }),
+    zones,
+    zac: [...new Set(zac)],
+    informations: [...new Set(infos.map((x) => propre(x.libelle)).filter(Boolean))],
+    servitudes: sup,
+    prescriptions: [...new Set((prescS || []).map((f) => propre((f.properties || {}).libelle)).filter(Boolean))],
+    partiel: [infoSurf, supS, supL, supP, secteurs].some((x) => x === null),
+  };
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ erreur: 'POST attendu' });
+  let corps = req.body;
+  if (typeof corps === 'string') { try { corps = JSON.parse(corps); } catch { corps = {}; } }
+  const demandees = [...new Set((corps?.parcelles ?? []).map((x) => String(x).trim().toUpperCase()).filter(Boolean))];
+  if (!demandees.length) return res.status(400).json({ erreur: 'parcelles requises' });
+
+  const lot = demandees.slice(0, MAX_PARCELLES);
+  const sortie = {};
+  let i = 0;
+  const ouvrier = async () => {
+    while (i < lot.length) {
+      const code = lot[i++];
+      try { sortie[code] = await traiterParcelle(code); }
+      catch (e) { sortie[code] = { statut: 'erreur', raison: e.message }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SIMULTANEES, lot.length) }, ouvrier));
+
+  return res.status(200).json({
+    interroge_le: new Date().toISOString(),
+    source: "Géoportail de l'urbanisme (interface cartographique de l'IGN)",
+    non_traitees: demandees.length - lot.length,
+    parcelles: sortie,
+  });
+}
