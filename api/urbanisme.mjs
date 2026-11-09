@@ -95,7 +95,12 @@ async function traiterParcelle(code) {
     return { libelle: propre(z.libelle || z.typesect || 'Secteur'), libelong: propre(z.libelong), typezone: propre(z.typezone) };
   });
   const infos = (infoSurf || []).map((f) => f.properties || {});
-  const zac = infos.filter((x) => ZAC.test(propre(x.libelle) + ' ' + propre(x.txt))).map((x) => propre(x.libelle || x.txt));
+  // 09/11/2026 — une ZAC est reconnue par son CODE du standard CNIG
+  // (INFORMATION 02-00, annexe obligatoire R151-52 8°) OU, à défaut, par
+  // son libellé : certains plans anciens ou mal codés n'ont que le texte.
+  const estZacCode = (x) => String(x.typeinf ?? '').padStart(2, '0') === '02';
+  const zac = infos.filter((x) => estZacCode(x) || ZAC.test(propre(x.libelle) + ' ' + propre(x.txt)))
+    .map((x) => propre(x.libelle || x.txt) || 'Zone d\u2019aménagement concerté');
   const sup = [...(supS || []), ...(supL || []), ...(supP || [])].map((f) => {
     const s = f.properties || {};
     return { categorie: propre(s.suptype).toUpperCase(), libelle: propre(s.nomass || s.typeass) };
